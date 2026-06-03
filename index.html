@@ -956,8 +956,11 @@ function showReprogBlock(type, planVal){
 function closeModal(){ v('modal-overlay').style.display='none'; modalDayId=null; }
 
 function saveRegistro(){
-  if(!modalDayId)return;
-  const day=planDays.find(d=>d.id===modalDayId);
+  dbg('saveRegistro() llamado — modalDayId='+modalDayId);
+  if(!modalDayId){ dbg('saveRegistro — ABORTADO: modalDayId es null'); return; }
+  const dayId = modalDayId; // capturar antes de cualquier render
+  const day=planDays.find(d=>d.id===dayId);
+  if(!day){ dbg('saveRegistro — ABORTADO: día no encontrado para id='+dayId); return; }
   const reg={nota:v('modal-nota').value||''};
   let hasDesvio=false;
 
@@ -985,7 +988,7 @@ function saveRegistro(){
     }
   });
   reg._hasDesvio=hasDesvio;
-  registros[modalDayId]=reg;
+  registros[dayId]=reg;
 
   // ── Inyectar reprogramaciones en planDays ─────────────────────────────────
   reprogramaciones.forEach(rp=>{
@@ -1627,9 +1630,9 @@ function subscribeRealtime(){
 
   db.ref('planDays').on('value', snap => {
     if(firstPlan){ firstPlan=false; return; }
-    if(_ownWrite) return;
+    if(_ownWrite){ dbg('subscribeRealtime planDays — ignorado (_ownWrite=true)'); return; }
     const arr=toArray(snap.val());
-    dbg('subscribeRealtime planDays — arr='+arr.length+' _ownWrite='+_ownWrite);
+    dbg('subscribeRealtime planDays — arr='+arr.length+' procesando cambio remoto');
     if(!arr.length) return;
     planDays = arr.map(d=>({...d, activities: Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
     renderFromPlanDays();
