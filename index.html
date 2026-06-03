@@ -1419,176 +1419,129 @@ function updateUserUI(){
 }
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
-let _subscribed = false; // evitar listeners duplicados
+let _subscribed = false;
+let _presenceRef = null;
 
 function initFirebase(){
   try {
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
     setSyncStatus('warn','Conectando...');
-
     db.ref('.info/connected').on('value', snap => {
-      if(snap.val()){
-        setSyncStatus('ok', `Sincronizado · ${currentUser}`);
-        // Solo suscribir una vez — evita listeners duplicados en reconexiones
-        if(!_subscribed){
-          _subscribed = true;
-          subscribeToRemoteChanges();
-        }
-        // Presencia: re-registrar en cada reconexión (pero fuera del guard)
-        const presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
-        presenceRef.set({nombre: currentUser, desde: Date.now()});
-        presenceRef.onDisconnect().remove();
-      } else {
-        setSyncStatus('err', 'Sin conexión — trabajando en local');
+      if(!snap.val()){ setSyncStatus('err','Sin conexión — modo local'); return; }
+      setSyncStatus('ok', `Sincronizado · ${currentUser}`);
+      if(!_presenceRef){
+        _presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
+        _presenceRef.set({nombre: currentUser, desde: Date.now()});
+        _presenceRef.onDisconnect().remove();
       }
+      if(!_subscribed){ _subscribed = true; loadAllAndSubscribe(); }
     });
-  } catch(e){
-    setSyncStatus('err', 'Error Firebase: ' + e.message);
-    console.error('Firebase error:', e);
-  }
+  } catch(e){ setSyncStatus('err','Error Firebase: '+e.message); console.error(e); }
 }
 
 function setSyncStatus(state, label){
-  const dot = v('sync-dot'), lbl = v('sync-label');
-  dot.className = 'sync-dot ' + state;
-  lbl.textContent = label;
+  v('sync-dot').className = 'sync-dot ' + state;
+  v('sync-label').textContent = label;
+}
+function sanitizeKey(str){ return str.replace(/[.#$\[\]/]/g,'_'); }
+function toArray(data){
+  if(!data) return [];
+  if(Array.isArray(data)) return data;
+  const keys=Object.keys(data);
+  if(keys.length && keys.every(k=>!isNaN(k))) return keys.sort((a,b)=>Number(a)-Number(b)).map(k=>data[k]);
+  return [];
 }
 
-// ─── SUBSCRIBE TO REMOTE CHANGES ─────────────────────────────────────────────
-function subscribeToRemoteChanges(){
-  if(!db) return;
-
-  // Firebase a veces devuelve arrays como objetos {0:{...}, 1:{...}}
-  // Esta función normaliza ambos formatos a array
-  function toArray(data){
-    if(!data) return [];
-    if(Array.isArray(data)) return data;
-    // objeto con claves numéricas → array
-    const keys = Object.keys(data);
-    if(keys.every(k => !isNaN(k))){
-      return keys.sort((a,b)=>Number(a)-Number(b)).map(k=>data[k]);
-    }
-    return [];
-  }
-
-  // ── Cargar estado inicial: config → planDays → registros ──────────────────
-  db.ref('config').once('value', snapCfg => {
-    const cfg = snapCfg.val();
-    if(cfg){
-      remoteUpdateInProgress = true;
-      restoreConfig(cfg);
-      remoteUpdateInProgress = false;
-      setSyncStatus('ok', `Configuración restaurada · ${currentUser}`);
-    }
-
-    db.ref('planDays').once('value', snap => {
-      const arr = toArray(snap.val());
-      if(arr.length > 0){
-        remoteUpdateInProgress = true;
-        planDays = arr;
-        remoteUpdateInProgress = false;
-        setSyncStatus('ok', `Planning cargado · ${currentUser}`);
-        setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 2000);
-      }
-      db.ref('registros').once('value', snapR => {
-        const data = snapR.val();
-        if(data){
-          remoteUpdateInProgress = true;
-          registros = data;
-          remoteUpdateInProgress = false;
+// ─── CARGA INICIAL ───────────────────────────────────────────────────────────
+function loadAllAndSubscribe(){
+  db.ref('config').once('value', s1 => {
+    if(s1.val()) restoreConfig(s1.val());
+    db.ref('planDays').once('value', s2 => {
+      const arr=toArray(s2.val());
+      if(arr.length) planDays=arr;
+      db.ref('registros').once('value', s3 => {
+        if(s3.val()) registros=s3.val();
+        if(planDays.length){
+          renderFromPlanDays();
+          setSyncStatus('ok',`Datos cargados · ${currentUser}`);
+          setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2500);
+        } else {
+          setSyncStatus('ok',`Sincronizado · ${currentUser}`);
         }
-        if(planDays.length > 0) rebuildAndRender();
-        listenRealtime(toArray);
+        subscribeRealtime();
       });
     });
   });
-
-  // Escuchar presencia de otros usuarios
   db.ref('presencia').on('value', snap => {
-    const data = snap.val();
-    if(!data) return;
-    const activos = Object.values(data).map(u=>u.nombre).filter(n=>n!==currentUser);
-    if(activos.length > 0){
-      setSyncStatus('ok', `En línea: ${[currentUser,...activos].join(', ')}`);
-    } else {
-      setSyncStatus('ok', `Sincronizado · ${currentUser}`);
-    }
+    if(!snap.val()) return;
+    const activos=Object.values(snap.val()).map(u=>u.nombre).filter(n=>n!==currentUser);
+    setSyncStatus('ok', activos.length ? `En línea: ${[currentUser,...activos].join(', ')}` : `Sincronizado · ${currentUser}`);
   });
 }
 
-function listenRealtime(toArray){
-  // Escuchar cambios de config en tiempo real
+// ─── LISTENERS TIEMPO REAL ───────────────────────────────────────────────────
+function subscribeRealtime(){
   db.ref('config').on('value', snap => {
-    if(isSyncing || remoteUpdateInProgress) return;
-    const cfg = snap.val();
-    if(!cfg) return;
-    remoteUpdateInProgress = true;
-    restoreConfig(cfg);
-    remoteUpdateInProgress = false;
+    if(!snap.val()||isSyncing) return;
+    restoreConfig(snap.val());
   });
-
-  // Escuchar cambios de planDays en tiempo real (de otros usuarios)
   db.ref('planDays').on('value', snap => {
     if(isSyncing) return;
-    const arr = toArray(snap.val());
+    const arr=toArray(snap.val());
     if(!arr.length) return;
-    remoteUpdateInProgress = true;
-    planDays = arr;
-    if(planDays.length > 0) rebuildAndRender();
-    setSyncStatus('ok', `Actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
-    setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 3000);
-    remoteUpdateInProgress = false;
+    planDays=arr;
+    renderFromPlanDays();
+    setSyncStatus('ok',`Planning actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
+    setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),3000);
   });
-
-  // Escuchar cambios de registros en tiempo real (de otros usuarios)
   db.ref('registros').on('value', snap => {
-    if(isSyncing) return;
-    const data = snap.val();
-    if(!data) return;
-    remoteUpdateInProgress = true;
-    registros = data;
-    if(planDays.length > 0) rebuildAndRender();
-    setSyncStatus('ok', `Registro actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
-    setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 3000);
-    remoteUpdateInProgress = false;
+    if(isSyncing||!snap.val()) return;
+    registros=snap.val();
+    if(planDays.length) renderFromPlanDays();
+    setSyncStatus('ok',`Registros actualizados · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
+    setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),3000);
   });
-}
-
-function sanitizeKey(str){
-  return str.replace(/[.#$\[\]/]/g,'_');
 }
 
 // ─── PUSH TO FIREBASE ────────────────────────────────────────────────────────
 function pushRegistros(){
-  if(!db || isSyncing || remoteUpdateInProgress) return;
-  isSyncing = true;
-  setSyncStatus('warn', 'Guardando...');
+  if(!db||isSyncing) return;
+  isSyncing=true;
   db.ref('registros').set(registros)
-    .then(()=>{
-      setSyncStatus('ok', `Guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
-      setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 2000);
-    })
-    .catch(e=>setSyncStatus('err','Error al guardar: '+e.message))
+    .then(()=>{ setSyncStatus('ok',`Guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2000); })
+    .catch(e=>setSyncStatus('err','Error: '+e.message))
     .finally(()=>isSyncing=false);
 }
-
 function pushPlanDays(){
-  if(!db || isSyncing || remoteUpdateInProgress) return;
+  if(!db) return;
   clearTimeout(syncTimeout);
-  syncTimeout = setTimeout(()=>{
-    isSyncing = true;
-    setSyncStatus('warn','Sincronizando planning...');
-    const payload = planDays.map(d=>({...d}));
-    db.ref('planDays').set(payload)
-      .then(()=>{
-        setSyncStatus('ok',`Planning sincronizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
-        setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2000);
-      })
-      .catch(e=>setSyncStatus('err','Error sync: '+e.message))
+  syncTimeout=setTimeout(()=>{
+    isSyncing=true;
+    db.ref('planDays').set(planDays.map(d=>({...d})))
+      .then(()=>{ setSyncStatus('ok',`Sincronizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2000); })
+      .catch(e=>setSyncStatus('err','Error: '+e.message))
       .finally(()=>isSyncing=false);
-  }, 800);
+  },800);
 }
+function pushConfig(){
+  if(!db) return;
+  db.ref('config').set(collectConfig()).catch(e=>console.error('Error config:',e));
+}
+
+// ─── REBUILD & RENDER ────────────────────────────────────────────────────────
+function rebuildAndRender(){ renderFromPlanDays(); }
+
+// ─── ARRANQUE ────────────────────────────────────────────────────────────────
+updateUserUI();
+if(!currentUser){
+  setTimeout(()=>{ v('user-modal').style.display='flex'; v('user-name-input').focus(); },300);
+} else {
+  v('user-modal').style.display='none';
+  if(FB_CONFIGURED) initFirebase();
+  else setSyncStatus('warn','Firebase no configurado — modo local');
+}
+
 
 // ─── CONFIG SNAPSHOT ─────────────────────────────────────────────────────────
 function collectConfig(){
