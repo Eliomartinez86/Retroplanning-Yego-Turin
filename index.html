@@ -1427,17 +1427,30 @@ function initFirebase(){
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
     setSyncStatus('warn','Conectando...');
+
+    // Conectar directamente sin esperar .info/connected
+    // que en algunos entornos no dispara correctamente
+    if(!_subscribed){
+      _subscribed = true;
+      // Registrar presencia
+      _presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
+      _presenceRef.set({nombre: currentUser, desde: Date.now()});
+      _presenceRef.onDisconnect().remove();
+      // Cargar datos
+      loadAllAndSubscribe();
+    }
+
+    // Monitorizar conexión solo para el indicador visual
     db.ref('.info/connected').on('value', snap => {
-      if(!snap.val()){ setSyncStatus('err','Sin conexión — modo local'); return; }
-      setSyncStatus('ok', `Sincronizado · ${currentUser}`);
-      if(!_presenceRef){
-        _presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
-        _presenceRef.set({nombre: currentUser, desde: Date.now()});
-        _presenceRef.onDisconnect().remove();
+      if(!snap.val()){
+        setSyncStatus('err','Sin conexión — modo local');
       }
-      if(!_subscribed){ _subscribed = true; loadAllAndSubscribe(); }
     });
-  } catch(e){ setSyncStatus('err','Error Firebase: '+e.message); console.error(e); }
+
+  } catch(e){
+    setSyncStatus('err','Error Firebase: '+e.message);
+    console.error(e);
+  }
 }
 
 function setSyncStatus(state, label){
