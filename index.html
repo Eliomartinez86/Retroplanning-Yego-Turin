@@ -512,9 +512,10 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
 <script>
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let planDays = [];      // plan base generado [{date, activities:[{type,plan:{...}},...]}]
+let planDays = [];      // plan base generado
 let registros = {};     // {dayId: {descarga:n, montaje:n, despliegue:n, nota:''}}
 let modalDayId = null;
+let _ownWrite = false;  // true mientras nosotros mismos escribimos en Firebase
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 const v = id => document.getElementById(id);
@@ -749,10 +750,23 @@ function generatePlanning(){
   const bpEl=document.getElementById('tabbadge-planning'); if(bpEl) bpEl.textContent=planBadge;
   if(!v('body-planning').classList.contains('open')) toggle('planning');
 
-  // Sync a Firebase si está configurado
+  // Guardar en Firebase directamente (sin debounce)
   if(FB_CONFIGURED && db){
-    pushConfig();
-    pushPlanDays();
+    dbg('generatePlanning — guardando config y planDays en Firebase...');
+    // Marcar que estamos escribiendo nosotros para que subscribeRealtime lo ignore
+    _ownWrite = true;
+    Promise.all([
+      db.ref('config').set(collectConfig()),
+      db.ref('planDays').set(planDays.map(d=>({...d})))
+    ]).then(()=>{
+      dbg('generatePlanning — ✓ guardado en Firebase');
+      setSyncStatus('ok',`Planning guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
+      setTimeout(()=>{ _ownWrite=false; setSyncStatus('ok',`Sincronizado · ${currentUser}`); },2000);
+    }).catch(e=>{
+      _ownWrite=false;
+      dbg('generatePlanning — ERROR: '+e.message);
+      setSyncStatus('err','Error guardando: '+e.message);
+    });
   }
 }
 
@@ -1585,20 +1599,19 @@ async function loadAllAndSubscribe(){
 
 // ─── LISTENERS TIEMPO REAL ───────────────────────────────────────────────────
 function subscribeRealtime(){
-  // Firebase .on('value') siempre dispara inmediatamente con el valor actual.
-  // Ya cargamos esos datos en loadAllAndSubscribe, así que ignoramos
-  // el primer disparo de cada listener con un flag por referencia.
   let firstConfig=true, firstPlan=true, firstRegs=true;
 
   db.ref('config').on('value', snap => {
-    if(firstConfig){ firstConfig=false; return; } // ignorar disparo inicial
-    if(!snap.val()||isSyncing) return;
+    if(firstConfig){ firstConfig=false; return; }
+    if(!snap.val()||_ownWrite) return;
     restoreConfig(snap.val());
   });
 
   db.ref('planDays').on('value', snap => {
     if(firstPlan){ firstPlan=false; return; }
+    if(_ownWrite) return;
     const arr=toArray(snap.val());
+    dbg('subscribeRealtime planDays — arr='+arr.length+' _ownWrite='+_ownWrite);
     if(!arr.length) return;
     planDays = arr.map(d=>({...d, activities: Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
     renderFromPlanDays();
@@ -1608,6 +1621,7 @@ function subscribeRealtime(){
 
   db.ref('registros').on('value', snap => {
     if(firstRegs){ firstRegs=false; return; }
+    if(_ownWrite) return;
     const data=snap.val();
     if(data) registros=data;
     if(planDays.length) renderFromPlanDays();
