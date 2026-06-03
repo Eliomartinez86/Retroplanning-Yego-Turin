@@ -1416,17 +1416,26 @@ function updateUserUI(){
 }
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
+let _subscribed = false; // evitar listeners duplicados
+
 function initFirebase(){
   try {
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
     setSyncStatus('warn','Conectando...');
 
-    // Test connection
     db.ref('.info/connected').on('value', snap => {
       if(snap.val()){
         setSyncStatus('ok', `Sincronizado · ${currentUser}`);
-        subscribeToRemoteChanges();
+        // Solo suscribir una vez — evita listeners duplicados en reconexiones
+        if(!_subscribed){
+          _subscribed = true;
+          subscribeToRemoteChanges();
+        }
+        // Presencia: re-registrar en cada reconexión (pero fuera del guard)
+        const presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
+        presenceRef.set({nombre: currentUser, desde: Date.now()});
+        presenceRef.onDisconnect().remove();
       } else {
         setSyncStatus('err', 'Sin conexión — trabajando en local');
       }
@@ -1447,49 +1456,82 @@ function setSyncStatus(state, label){
 function subscribeToRemoteChanges(){
   if(!db) return;
 
-  // Escuchar registros remotos
-  db.ref('registros').on('value', snap => {
-    if(isSyncing) return; // evitar loop: no procesar lo que nosotros mismos escribimos
-    const data = snap.val();
-    if(!data) return;
-    remoteUpdateInProgress = true;
-    registros = data;
-    // Re-renderizar si hay planning generado
-    if(planDays.length > 0){
-      rebuildAndRender();
-      setSyncStatus('ok', `Actualizado por compañero · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
-      setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 3000);
+  // Firebase a veces devuelve arrays como objetos {0:{...}, 1:{...}}
+  // Esta función normaliza ambos formatos a array
+  function toArray(data){
+    if(!data) return [];
+    if(Array.isArray(data)) return data;
+    // objeto con claves numéricas → array
+    const keys = Object.keys(data);
+    if(keys.every(k => !isNaN(k))){
+      return keys.sort((a,b)=>Number(a)-Number(b)).map(k=>data[k]);
     }
-    remoteUpdateInProgress = false;
+    return [];
+  }
+
+  // ── Cargar estado inicial de planDays ──────────────────────────────────────
+  db.ref('planDays').once('value', snap => {
+    const arr = toArray(snap.val());
+    if(arr.length > 0){
+      remoteUpdateInProgress = true;
+      planDays = arr;
+      remoteUpdateInProgress = false;
+      setSyncStatus('ok', `Planning cargado · ${currentUser}`);
+      setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 2000);
+    }
+    // Cargar registros después (necesitamos planDays primero para renderizar)
+    db.ref('registros').once('value', snapR => {
+      const data = snapR.val();
+      if(data){
+        remoteUpdateInProgress = true;
+        registros = data;
+        remoteUpdateInProgress = false;
+      }
+      // Renderizar con los datos iniciales completos
+      if(planDays.length > 0) rebuildAndRender();
+      // Ahora suscribir a cambios en tiempo real
+      listenRealtime(toArray);
+    });
   });
 
-  // Escuchar planning base remoto
-  db.ref('planDays').on('value', snap => {
-    if(isSyncing) return;
-    const data = snap.val();
-    if(!data || !Array.isArray(data)) return;
-    if(data.length === 0) return;
-    remoteUpdateInProgress = true;
-    planDays = data;
-    rebuildAndRender();
-    remoteUpdateInProgress = false;
-  });
-
-  // Presencia: registrar usuario activo
-  const presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
-  presenceRef.set({nombre: currentUser, desde: Date.now()});
-  presenceRef.onDisconnect().remove();
-
-  // Escuchar presencia
+  // Escuchar presencia de otros usuarios
   db.ref('presencia').on('value', snap => {
     const data = snap.val();
     if(!data) return;
     const activos = Object.values(data).map(u=>u.nombre).filter(n=>n!==currentUser);
     if(activos.length > 0){
-      setSyncStatus('ok', `Sincronizado · En línea: ${[currentUser,...activos].join(', ')}`);
+      setSyncStatus('ok', `En línea: ${[currentUser,...activos].join(', ')}`);
     } else {
       setSyncStatus('ok', `Sincronizado · ${currentUser}`);
     }
+  });
+}
+
+function listenRealtime(toArray){
+  // Escuchar cambios de planDays en tiempo real (de otros usuarios)
+  db.ref('planDays').on('value', snap => {
+    if(isSyncing) return;
+    const arr = toArray(snap.val());
+    if(!arr.length) return;
+    remoteUpdateInProgress = true;
+    planDays = arr;
+    if(planDays.length > 0) rebuildAndRender();
+    setSyncStatus('ok', `Actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
+    setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 3000);
+    remoteUpdateInProgress = false;
+  });
+
+  // Escuchar cambios de registros en tiempo real (de otros usuarios)
+  db.ref('registros').on('value', snap => {
+    if(isSyncing) return;
+    const data = snap.val();
+    if(!data) return;
+    remoteUpdateInProgress = true;
+    registros = data;
+    if(planDays.length > 0) rebuildAndRender();
+    setSyncStatus('ok', `Registro actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
+    setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 3000);
+    remoteUpdateInProgress = false;
   });
 }
 
