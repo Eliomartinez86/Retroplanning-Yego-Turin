@@ -256,6 +256,9 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
 </div>
 
+<!-- DEBUG PANEL — eliminar cuando esté todo funcionando -->
+<div id="debug-panel" style="background:#1a1a2e;color:#00ff88;font-family:monospace;font-size:11px;padding:8px 2rem;max-height:120px;overflow-y:auto;border-bottom:1px solid #333;display:block"></div>
+
 <!-- TAB NAV -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('config')" id="tab-config">
@@ -1418,38 +1421,39 @@ function updateUserUI(){
   v('user-name-display').textContent = currentUser || 'Identificarte';
 }
 
+// ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
+function dbg(msg){
+  console.log('[YEGO]', msg);
+  const el = document.getElementById('debug-panel');
+  if(el) el.innerHTML += `<div>${new Date().toLocaleTimeString('es')} — ${msg}</div>`;
+}
+
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
 let _subscribed = false;
 let _presenceRef = null;
 
 function initFirebase(){
   try {
+    dbg('initFirebase() llamado');
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
+    dbg('Firebase app iniciada');
     setSyncStatus('warn','Conectando...');
-
-    // Conectar directamente sin esperar .info/connected
-    // que en algunos entornos no dispara correctamente
     if(!_subscribed){
       _subscribed = true;
-      // Registrar presencia
       _presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
       _presenceRef.set({nombre: currentUser, desde: Date.now()});
       _presenceRef.onDisconnect().remove();
-      // Cargar datos
+      dbg('Presencia registrada, llamando loadAllAndSubscribe...');
       loadAllAndSubscribe();
     }
-
-    // Monitorizar conexión solo para el indicador visual
     db.ref('.info/connected').on('value', snap => {
-      if(!snap.val()){
-        setSyncStatus('err','Sin conexión — modo local');
-      }
+      dbg('.info/connected = ' + snap.val());
+      if(!snap.val()) setSyncStatus('err','Sin conexión — modo local');
     });
-
   } catch(e){
+    dbg('ERROR initFirebase: ' + e.message);
     setSyncStatus('err','Error Firebase: '+e.message);
-    console.error(e);
   }
 }
 
@@ -1469,18 +1473,21 @@ function toArray(data){
 // ─── CARGA INICIAL ───────────────────────────────────────────────────────────
 function loadAllAndSubscribe(){
   setSyncStatus('warn','Cargando config...');
+  dbg('loadAllAndSubscribe() iniciado');
   db.ref('config').once('value', s1 => {
     const cfg = s1.val();
+    dbg('config cargada: ' + (cfg ? 'SÍ (ciudad='+cfg.ciudad+', motos='+cfg.nMotos+')' : 'NO (null)'));
     setSyncStatus('warn', cfg ? 'Config encontrada, restaurando...' : 'Sin config en Firebase');
     if(cfg) restoreConfig(cfg);
     setSyncStatus('warn','Cargando planning...');
     db.ref('planDays').once('value', s2 => {
       const arr=toArray(s2.val());
+      dbg('planDays cargado: ' + arr.length + ' días');
       setSyncStatus('warn', arr.length ? `Planning: ${arr.length} días, cargando registros...` : 'Sin planning en Firebase');
       if(arr.length) planDays=arr;
       db.ref('registros').once('value', s3 => {
         const regs = s3.val();
-        setSyncStatus('warn', regs ? `Registros encontrados, renderizando...` : 'Sin registros');
+        dbg('registros cargados: ' + (regs ? Object.keys(regs).length+' entradas' : 'ninguno'));
         if(regs) registros=regs;
         if(planDays.length){
           renderFromPlanDays();
@@ -1553,9 +1560,12 @@ function rebuildAndRender(){ renderFromPlanDays(); }
 
 // ─── ARRANQUE ────────────────────────────────────────────────────────────────
 updateUserUI();
+dbg('Arranque — currentUser: "' + currentUser + '" — FB_CONFIGURED: ' + FB_CONFIGURED);
 if(!currentUser){
+  dbg('Sin usuario → mostrando modal');
   setTimeout(()=>{ v('user-modal').style.display='flex'; v('user-name-input').focus(); },300);
 } else {
+  dbg('Usuario encontrado → ocultando modal, iniciando Firebase');
   v('user-modal').style.display='none';
   if(FB_CONFIGURED) initFirebase();
   else setSyncStatus('warn','Firebase no configurado — modo local');
