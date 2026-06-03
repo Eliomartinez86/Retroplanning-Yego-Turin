@@ -256,9 +256,6 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
 </div>
 
-<!-- DEBUG PANEL -->
-<div id="debug-panel" style="background:#1a1a2e;color:#00ff88;font-family:monospace;font-size:11px;padding:8px 2rem;max-height:140px;overflow-y:auto;border-bottom:1px solid #333"></div>
-
 <!-- TAB NAV -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('config')" id="tab-config">
@@ -1479,11 +1476,7 @@ function updateUserUI(){
 }
 
 // ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
-function dbg(msg){
-  console.log('[YEGO]', msg);
-  const el = document.getElementById('debug-panel');
-  if(el) el.innerHTML += `<div>${new Date().toLocaleTimeString('es')} — ${msg}</div>`;
-}
+function dbg(msg){ /* debug desactivado */ }
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
 let _subscribed = false;
