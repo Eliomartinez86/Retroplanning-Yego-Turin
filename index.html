@@ -293,8 +293,12 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
     <span class="chevron open" id="chev-descarga">▼</span>
   </div>
   <div class="section-body open" id="body-descarga">
-
-    <!-- Subsección A: Descarga camión -->
+    <!-- Fecha de inicio descarga -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;padding:10px 14px;background:var(--orange-light);border-radius:8px;border:1px solid #F5D08A">
+      <span style="font-size:13px;font-weight:600;color:#C47E0D">📅 Fecha de inicio descarga</span>
+      <input type="date" id="fecha-inicio-descarga" value="2025-09-01" style="width:160px;border-color:#F5D08A;background:var(--white)">
+      <span style="font-size:12px;color:#C47E0D">Esta fecha puede coincidir o no con las de montaje y despliegue</span>
+    </div>
     <div class="subsection">
       <div class="subsection-header">
         <span class="subsection-icon">🚛</span>
@@ -362,7 +366,12 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
     <span class="chevron open" id="chev-montaje">▼</span>
   </div>
   <div class="section-body open" id="body-montaje">
-    <div class="personas-row">
+    <!-- Fecha de inicio montaje -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;padding:10px 14px;background:var(--green-light);border-radius:8px;border:1px solid #9ADDC5">
+      <span style="font-size:13px;font-weight:600;color:#1A9E72">📅 Fecha de inicio montaje</span>
+      <input type="date" id="fecha-inicio-montaje" value="2025-09-01" style="width:160px;border-color:#9ADDC5;background:var(--white)">
+      <span style="font-size:12px;color:#1A9E72">Puede comenzar el mismo día o después de la primera descarga</span>
+    </div>
       <div class="form-group" style="flex:0 0 210px"><label>Personas simultáneas</label><input type="number" id="personas-montaje" value="3" min="1" oninput="updateBadges()"></div>
       <div class="info-box">Tiempo por moto = suma de tiempos de pieza. Con n personas el tiempo efectivo se divide entre ellas.</div>
     </div>
@@ -389,6 +398,12 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
     <span class="chevron" id="chev-despliegue">▼</span>
   </div>
   <div class="section-body" id="body-despliegue">
+    <!-- Fecha de inicio despliegue -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;padding:10px 14px;background:var(--cyan-light);border-radius:8px;border:1px solid #A5DFF0">
+      <span style="font-size:13px;font-weight:600;color:var(--cyan)">📅 Fecha de inicio despliegue</span>
+      <input type="date" id="fecha-inicio-despliegue" value="2025-09-01" style="width:160px;border-color:#A5DFF0;background:var(--white)">
+      <span style="font-size:12px;color:var(--cyan)">Normalmente después de tener las primeras motos montadas</span>
+    </div>
     <div class="info-box" style="margin-bottom:14px">Fase de salida de motos a calle una vez montadas. Se incluye como bloque en el planning diario.</div>
     <div class="form-grid" style="margin-bottom:0">
       <div class="form-group"><label>Motos desplegadas por día</label><input type="number" id="despliegue-motos-dia" value="36" min="1" oninput="updateBadgesDespliegue()"></div>
@@ -623,15 +638,14 @@ function addAdmin(){
 
 // ─── GENERATE PLAN BASE ──────────────────────────────────────────────────────
 function generatePlanning(){
-  registros={}; // reset registros when plan regenerated
+  registros={};
   planDays=[];
 
   const motos=vi('n-motos'), cont=Math.ceil(motos/36);
-  const fechaStr=v('fecha-inicio').value||'2025-09-01';
   const pdc=vi('personas-desc-camion'), pdt=vi('personas-desc-tareas');
   const pd=pdc+pdt, pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
   const motosDespDia=vi('despliegue-motos-dia'), minMotoDesp=vi('despliegue-min-moto');
-  const totalMinDesc=getDescargaTotal(), totalMinMont=getMontajeTotal();
+  const totalMinMont=getMontajeTotal();
   const minCamionP=pdc>0?getSubtotal('tbody-desc-camion')/pdc:0;
   const minTareasP=pdt>0?getSubtotal('tbody-desc-tareas')/pdt:0;
   const hContDesc=Math.max(minCamionP,minTareasP)/60;
@@ -639,14 +653,29 @@ function generatePlanning(){
   const caps=[vi('cap-7'),vi('cap-1'),vi('cap-2'),vi('cap-3'),vi('cap-4'),vi('cap-5'),vi('cap-6')];
   const dayNames=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
-  let contRestantes=cont, motosEnAlmacen=0, motosMontadas=0, motosEnCalle=0;
-  let currentDate=new Date(fechaStr+'T12:00:00');
-  while(currentDate.getDay()===0||currentDate.getDay()===6) currentDate.setDate(currentDate.getDate()+1);
+  // ── Fechas de inicio de cada bloque ────────────────────────────────────────
+  function firstWorkday(dateStr){
+    const d=new Date((dateStr||'2025-09-01')+'T12:00:00');
+    while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1);
+    return d;
+  }
+  const fechaDescStr = v('fecha-inicio-descarga').value || v('fecha-inicio').value || '2025-09-01';
+  const fechaMontStr = v('fecha-inicio-montaje').value  || v('fecha-inicio').value || '2025-09-01';
+  const fechaDespStr = v('fecha-inicio-despliegue').value|| v('fecha-inicio').value || '2025-09-01';
+  const dateDescISO = firstWorkday(fechaDescStr).toISOString().slice(0,10);
+  const dateMontISO = firstWorkday(fechaMontStr).toISOString().slice(0,10);
+  const dateDespISO = firstWorkday(fechaDespStr).toISOString().slice(0,10);
 
+  // ── Determinar rango de fechas a generar ───────────────────────────────────
+  // La más temprana de las tres fechas marca el inicio del calendario
+  const allStartDates=[dateDescISO,dateMontISO,dateDespISO].sort();
+  let currentDate=firstWorkday(allStartDates[0]);
+
+  let contRestantes=cont, motosEnAlmacen=0, motosMontadas=0, motosEnCalle=0;
   let semana=1, dayIdx=0;
   const weeks=[];
 
-  while((contRestantes>0||motosEnAlmacen>0||motosEnCalle<motos)&&semana<=26){
+  while((contRestantes>0||motosEnAlmacen>0||motosEnCalle<motos)&&semana<=52){
     const days=[];
     for(let d=0;d<5;d++){
       const dow=currentDate.getDay();
@@ -655,20 +684,23 @@ function generatePlanning(){
       const cap=caps[dow]||0;
       const activities=[];
 
-      if(cap>0&&contRestantes>0){
+      // DESCARGA — solo si hemos llegado a la fecha de inicio de descarga
+      if(dateISO>=dateDescISO && cap>0 && contRestantes>0){
         const descHoy=Math.min(cap,contRestantes);
         contRestantes-=descHoy;
         const motosDesc=descHoy*36;
         motosEnAlmacen+=motosDesc;
         activities.push({type:'descarga',planCont:descHoy,planMotos:motosDesc,personas:pd,horas:hContDesc*descHoy,acum:cont-contRestantes,total:cont});
       }
-      if(motosEnAlmacen>0){
+      // MONTAJE — solo si hemos llegado a la fecha de inicio de montaje
+      if(dateISO>=dateMontISO && motosEnAlmacen>0){
         const motosHoy=Math.min(36,motosEnAlmacen);
         const hMont=pm>0?(motosHoy*totalMinMont/pm)/60:0;
         motosEnAlmacen-=motosHoy; motosMontadas+=motosHoy;
         activities.push({type:'montaje',planMotos:motosHoy,personas:pm,horas:hMont,acum:motosMontadas,total:motos});
       }
-      if(motosMontadas>motosEnCalle){
+      // DESPLIEGUE — solo si hemos llegado a la fecha de inicio de despliegue
+      if(dateISO>=dateDespISO && motosMontadas>motosEnCalle){
         const despHoy=Math.min(motosDespDia,motosMontadas-motosEnCalle);
         motosEnCalle+=despHoy;
         activities.push({type:'despliegue',planMotos:despHoy,personas:pDesp,horas:hDespDia,acum:motosEnCalle,total:motos});
@@ -682,10 +714,13 @@ function generatePlanning(){
     weeks.push({semana,days}); semana++;
   }
 
-  renderPlanning(weeks, motos, cont, pd, pm, pDesp, fechaStr);
+  renderPlanning(weeks, motos, cont, pd, pm, pDesp, fechaDescStr);
   renderDesviaciones();
   v('badge-planning').textContent=weeks.length+' sem · '+motos+' motos';
   if(!v('body-planning').classList.contains('open')) toggle('planning');
+
+  // Sync a Firebase si está configurado
+  if(FB_CONFIGURED && db) pushPlanDays();
 }
 
 // ─── RENDER PLANNING ─────────────────────────────────────────────────────────
@@ -732,10 +767,13 @@ function renderPlanning(weeks, motos, cont, pd, pm, pDesp, fechaStr){
         html+=`<span class="no-activity">Sin actividad operativa</span>`;
       } else {
         day.activities.forEach(a=>{
+          const isReprogAct = !!a._reprog;
+          const reprogBadge = isReprogAct ? `<span style="font-size:10px;font-weight:700;background:#FDF5FF;color:#9B1FA8;border:1px solid #D88AEF;border-radius:10px;padding:2px 7px;margin-left:4px">↻ Reprog.</span>` : '';
+          const acumStr = a.acum==='?'?'pendiente':(`acum. ${a.acum}/${a.total}`);
           const lbl=a.type==='descarga'
-            ?`Descarga ${a.planCont} cont. (${a.planMotos} motos) · acum. ${a.acum}/${a.total}`
-            :`${a.type==='montaje'?'Montaje':'Despliegue'} ${a.planMotos} motos · acum. ${a.acum}/${a.total}`;
-          html+=`<div class="task-line"><span class="chip ${clsMap[a.type]}">${iconMap[a.type]} ${lbl}</span>
+            ?`Descarga ${a.planCont} cont. (${a.planMotos} motos) · ${acumStr}`
+            :`${a.type==='montaje'?'Montaje':'Despliegue'} ${a.planMotos} motos · ${acumStr}`;
+          html+=`<div class="task-line"><span class="chip ${clsMap[a.type]}">${iconMap[a.type]} ${lbl}</span>${reprogBadge}
             <span class="task-meta">👥 ${a.personas}p</span><div class="dot"></div><span class="task-meta">⏱ ${a.horas.toFixed(1)}h</span>`;
           // Real vs plan
           if(hasReg&&reg[a.type]!==undefined){
@@ -780,68 +818,215 @@ function openModal(dayId){
   if(!day)return;
   const reg=registros[dayId]||{};
   v('modal-title').textContent=`Ejecución real · ${day.dayName} ${day.dateStr}`;
-  v('modal-sub').textContent='Introduce lo que se realizó realmente. Deja en blanco si no aplica.';
+  v('modal-sub').textContent='Introduce lo ejecutado. Si hay déficit, indica cuándo se reprograma.';
   const iconMap={descarga:'📦',montaje:'🔧',despliegue:'🛵'};
+  const unitMap={descarga:'contenedores',montaje:'motos',despliegue:'motos'};
+
+  // Día siguiente laborable como sugerencia de reprogramación
+  function nextWD(iso){
+    const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+1);
+    if(d.getDay()===6) d.setDate(d.getDate()+2);
+    if(d.getDay()===0) d.setDate(d.getDate()+1);
+    return d.toISOString().slice(0,10);
+  }
+  const suggestedReprog = nextWD(dayId);
+
   let fields='';
   day.activities.forEach(a=>{
     const planVal=a.type==='descarga'?a.planCont:a.planMotos;
-    const unit=a.type==='descarga'?'contenedores':'motos';
+    const unit=unitMap[a.type];
     const stored=reg[a.type]!==undefined?reg[a.type]:'';
-    fields+=`<div class="modal-row">
+    const storedReprog=reg[a.type+'_reprog']||suggestedReprog;
+    const storedReprogVal=reg[a.type+'_reprog_val']!==undefined?reg[a.type+'_reprog_val']:'';
+    fields+=`
+    <div class="modal-row" id="modal-row-${a.type}">
       <label>${iconMap[a.type]} ${a.type.charAt(0).toUpperCase()+a.type.slice(1)} real (${unit})</label>
-      <input type="number" id="modal-${a.type}" value="${stored}" min="0" placeholder="${planVal}" style="width:100%">
-      <div class="plan-ref">Plan: ${planVal} ${unit}</div>
+      <input type="number" id="modal-${a.type}" value="${stored}" min="0" placeholder="${planVal}"
+        style="width:100%" oninput="checkDesvio('${a.type}',${planVal})">
+      <div class="plan-ref">Plan: <strong>${planVal} ${unit}</strong></div>
+      <div id="reprog-block-${a.type}" style="display:none;margin-top:10px;padding:10px 12px;background:#FDF5FF;border:1px solid #D88AEF;border-radius:8px">
+        <div style="font-size:12px;font-weight:700;color:#9B1FA8;margin-bottom:8px">↻ Déficit detectado — ¿Cuándo se reprograma?</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-group">
+            <label>Fecha de reprogramación</label>
+            <input type="date" id="modal-${a.type}-reprog-date" value="${storedReprog}" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label>Cantidad a reprogramar (${unit})</label>
+            <input type="number" id="modal-${a.type}-reprog-val" value="${storedReprogVal}" min="0"
+              placeholder="Déficit automático" style="width:100%">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#9B1FA8;margin-top:5px">Si dejas la cantidad vacía se usa el déficit completo.</div>
+      </div>
     </div>`;
   });
   fields+=`<div class="modal-row"><label>📝 Nota (opcional)</label>
     <input type="text" id="modal-nota" value="${reg.nota||''}" placeholder="Incidencias, causas de desviación..." style="width:100%"></div>`;
   v('modal-fields').innerHTML=fields;
+
+  // Mostrar bloques reprog si ya había déficit registrado
+  day.activities.forEach(a=>{
+    if(reg[a.type]!==undefined){
+      const planVal=a.type==='descarga'?a.planCont:a.planMotos;
+      if(reg[a.type]<planVal) showReprogBlock(a.type, planVal);
+    }
+  });
+
   v('modal-overlay').style.display='flex';
 }
+
+function checkDesvio(type, planVal){
+  const inp=v('modal-'+type);
+  const val=inp.value===''?null:parseFloat(inp.value);
+  if(val!==null && val<planVal){
+    showReprogBlock(type, planVal);
+    // Sugerir cantidad = déficit
+    const deficit=planVal-val;
+    const reprogVal=v('modal-'+type+'-reprog-val');
+    if(reprogVal && reprogVal.value==='') reprogVal.value=deficit;
+  } else {
+    const block=v('reprog-block-'+type);
+    if(block) block.style.display='none';
+  }
+}
+
+function showReprogBlock(type, planVal){
+  const block=v('reprog-block-'+type);
+  if(block) block.style.display='block';
+  // Actualizar sugerencia de déficit si el campo está vacío
+  const inp=v('modal-'+type);
+  const val=inp&&inp.value!==''?parseFloat(inp.value):0;
+  const deficit=planVal-val;
+  const reprogVal=v('modal-'+type+'-reprog-val');
+  if(reprogVal && reprogVal.value==='') reprogVal.value=Math.max(0,deficit);
+}
+
 function closeModal(){ v('modal-overlay').style.display='none'; modalDayId=null; }
+
 function saveRegistro(){
   if(!modalDayId)return;
   const day=planDays.find(d=>d.id===modalDayId);
   const reg={nota:v('modal-nota').value||''};
   let hasDesvio=false;
+
+  // Recoger valores reales y reprogramaciones
+  const reprogramaciones=[]; // [{type, date, val}]
   day.activities.forEach(a=>{
     const inp=v('modal-'+a.type);
     if(inp&&inp.value!==''){
       const realVal=parseFloat(inp.value)||0;
       reg[a.type]=realVal;
       const planVal=a.type==='descarga'?a.planCont:a.planMotos;
-      if(realVal<planVal) hasDesvio=true;
+      if(realVal<planVal){
+        hasDesvio=true;
+        const reprogDate=v('modal-'+a.type+'-reprog-date');
+        const reprogValInp=v('modal-'+a.type+'-reprog-val');
+        const deficit=planVal-realVal;
+        const reprogVal=reprogValInp&&reprogValInp.value!==''?parseFloat(reprogValInp.value):deficit;
+        const reprogDateVal=reprogDate?reprogDate.value:'';
+        if(reprogDateVal && reprogVal>0){
+          reg[a.type+'_reprog']=reprogDateVal;
+          reg[a.type+'_reprog_val']=reprogVal;
+          reprogramaciones.push({type:a.type, date:reprogDateVal, val:reprogVal, personas:a.personas, horas:a.horas});
+        }
+      }
     }
   });
   reg._hasDesvio=hasDesvio;
   registros[modalDayId]=reg;
 
-  // Snapshot de las fechas originales antes de recalcular
-  const fechasOriginales=planDays.map(d=>d.id);
+  // ── Inyectar reprogramaciones en planDays ─────────────────────────────────
+  reprogramaciones.forEach(rp=>{
+    injectReprogramado(rp);
+  });
 
   closeModal();
-  recalcFromDay(modalDayId);
 
-  // Marcar días que han cambiado de posición (nuevas fechas añadidas = retraso)
-  planDays.forEach((d,i)=>{
-    d._esNuevo = i>=fechasOriginales.length || fechasOriginales[i]!==d.id;
-  });
+  // Reconstruir semanas y renderizar
+  renderFromPlanDays();
 
-  // Reconstruir semanas agrupando por semana ISO
+  // Sync Firebase
+  if(typeof FB_CONFIGURED!=='undefined' && FB_CONFIGURED && db){
+    pushRegistros();
+    pushPlanDays();
+  }
+}
+
+// ── Inyectar un día reprogramado en planDays ───────────────────────────────
+function injectReprogramado(rp){
+  const {type, date, val, personas, horas} = rp;
+  const dayNames=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const pd=vi('personas-desc-camion')+vi('personas-desc-tareas');
+  const pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
+
+  // Buscar si ya existe ese día en planDays
+  let targetDay=planDays.find(d=>d.id===date);
+
+  if(targetDay){
+    // El día ya existe: añadir o combinar la actividad reprogramada
+    const existing=targetDay.activities.find(a=>a.type===type);
+    if(existing){
+      // Sumar al existente
+      if(type==='descarga'){
+        existing.planCont+=val;
+        existing.planMotos+=val*36;
+      } else {
+        existing.planMotos+=val;
+      }
+      existing._reprog=true;
+    } else {
+      // Añadir nueva actividad al día
+      const act=buildReprogActivity(type, val, personas, horas);
+      targetDay.activities.push(act);
+    }
+    targetDay._esNuevo=true;
+  } else {
+    // El día no existe: crear un día nuevo y ordenar en planDays
+    const d=new Date(date+'T12:00:00');
+    const dow=d.getDay();
+    const dateStr=d.toLocaleDateString('es',{day:'2-digit',month:'2-digit'});
+
+    // Calcular semana relativa
+    const firstDay=planDays[0];
+    const firstDate=new Date(firstDay.dateISO+'T12:00:00');
+    const diffMs=d-firstDate;
+    const diffWeeks=Math.floor(diffMs/(7*24*3600*1000));
+    const semana=firstDay.semana+diffWeeks;
+
+    const act=buildReprogActivity(type, val, personas, horas);
+    const newDay={
+      id:date, dayName:dayNames[dow], dateStr, dateISO:date,
+      activities:[act], dayIdx:9999, semana, _esNuevo:true
+    };
+    planDays.push(newDay);
+    // Ordenar planDays por fecha
+    planDays.sort((a,b)=>a.dateISO.localeCompare(b.dateISO));
+  }
+}
+
+function buildReprogActivity(type, val, personas, horas){
+  const motos=vi('n-motos'), cont=Math.ceil(motos/36);
+  if(type==='descarga'){
+    return {type,planCont:val,planMotos:val*36,personas,horas,acum:'?',total:cont,_reprog:true};
+  } else if(type==='montaje'){
+    return {type,planMotos:val,personas,horas,acum:'?',total:motos,_reprog:true};
+  } else {
+    return {type,planMotos:val,personas,horas,acum:'?',total:motos,_reprog:true};
+  }
+}
+
+function renderFromPlanDays(){
+  const motos=vi('n-motos'), cont=Math.ceil(motos/36);
+  const pd=vi('personas-desc-camion')+vi('personas-desc-tareas');
+  const pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
+  const fechaStr=v('fecha-inicio-descarga').value||v('fecha-inicio').value||'2025-09-01';
   const weeksMap={};
   planDays.forEach(d=>{
-    const key=d.semana;
-    if(!weeksMap[key]) weeksMap[key]=[];
-    weeksMap[key].push(d);
+    if(!weeksMap[d.semana]) weeksMap[d.semana]=[];
+    weeksMap[d.semana].push(d);
   });
-  const weeks=Object.keys(weeksMap)
-    .map(s=>parseInt(s))
-    .sort((a,b)=>a-b)
-    .map(s=>({semana:s, days:weeksMap[s]}));
-
-  const motos=vi('n-motos'), cont=Math.ceil(motos/36);
-  const pd=vi('personas-desc-camion')+vi('personas-desc-tareas'), pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
-  const fechaStr=v('fecha-inicio').value||'2025-09-01';
+  const weeks=Object.keys(weeksMap).map(s=>parseInt(s)).sort((a,b)=>a-b).map(s=>({semana:s,days:weeksMap[s]}));
   renderPlanning(weeks,motos,cont,pd,pm,pDesp,fechaStr);
   renderDesviaciones();
   v('badge-desviacion').textContent=Object.keys(registros).length+' días registrados';
@@ -856,7 +1041,7 @@ function recalcFromDay(fromDayId){
   const pdcR=vi('personas-desc-camion'), pdtR=vi('personas-desc-tareas');
   const pd=pdcR+pdtR, pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
   const motosDespDia=vi('despliegue-motos-dia'), minMotoDesp=vi('despliegue-min-moto');
-  const totalMinDesc=getDescargaTotal(), totalMinMont=getMontajeTotal();
+  const totalMinMont=getMontajeTotal();
   const minCamionPR=pdcR>0?getSubtotal('tbody-desc-camion')/pdcR:0;
   const minTareasPR=pdtR>0?getSubtotal('tbody-desc-tareas')/pdtR:0;
   const hContDesc=Math.max(minCamionPR,minTareasPR)/60;
@@ -864,84 +1049,101 @@ function recalcFromDay(fromDayId){
   const caps=[vi('cap-7'),vi('cap-1'),vi('cap-2'),vi('cap-3'),vi('cap-4'),vi('cap-5'),vi('cap-6')];
   const dayNames=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
-  // ── 1. Reconstruir estado real hasta fromDay (inclusive) ──────────────────
+  // Recuperar fechas de inicio de bloque para respetar restricciones
+  const dateDescISO = (v('fecha-inicio-descarga').value||v('fecha-inicio').value||'2025-09-01');
+  const dateMontISO = (v('fecha-inicio-montaje').value||v('fecha-inicio').value||'2025-09-01');
+  const dateDespISO = (v('fecha-inicio-despliegue').value||v('fecha-inicio').value||'2025-09-01');
+
+  // ── 1. Reconstruir estado REAL acumulado hasta fromDay inclusive ───────────
+  // Usamos valores reales donde hay registro, plan donde no hay
   let contDescargados=0, motosMontadas=0, motosEnCalle=0, motosEnAlmacen=0;
+
   for(let i=0;i<=fromIdx;i++){
     const d=planDays[i];
     const reg=registros[d.id];
-    // snapshot activities antes de modificar (para días ya registrados usamos reg)
-    const acts=d.activities;
-    acts.forEach(a=>{
-      const useReal=reg&&reg[a.type]!==undefined;
+    d.activities.forEach(a=>{
+      const useReal = reg && reg[a.type]!==undefined;
       if(a.type==='descarga'){
-        const n=useReal?reg[a.type]:a.planCont;
-        contDescargados+=n; motosEnAlmacen+=n*36;
+        // real puede ser 0 — eso significa que los contenedores planificados
+        // NO se descargaron y siguen pendientes (contRestantes no baja)
+        const n = useReal ? reg[a.type] : a.planCont;
+        contDescargados += n;
+        motosEnAlmacen += n * 36;
       }
       if(a.type==='montaje'){
-        const n=useReal?reg[a.type]:a.planMotos;
-        const m=Math.min(n,motosEnAlmacen);
-        motosMontadas+=m; motosEnAlmacen-=m;
+        const n = useReal ? reg[a.type] : a.planMotos;
+        const m = Math.min(n, motosEnAlmacen);
+        motosMontadas += m;
+        motosEnAlmacen -= m;
       }
       if(a.type==='despliegue'){
-        const n=useReal?reg[a.type]:a.planMotos;
-        motosEnCalle+=Math.min(n,motosMontadas-motosEnCalle);
+        const n = useReal ? reg[a.type] : a.planMotos;
+        const disponibles = Math.max(0, motosMontadas - motosEnCalle);
+        motosEnCalle += Math.min(n, disponibles);
       }
     });
   }
 
-  let contRestantes=Math.max(0, cont-contDescargados);
+  // contRestantes = lo que queda por descargar (puede ser mayor al plan si hubo 0s reales)
+  let contRestantes = Math.max(0, cont - contDescargados);
 
-  // ── 2. Truncar planDays al punto de corte y reconstruir hacia delante ─────
-  // Conservar sólo los días hasta fromIdx; el resto los regeneramos
-  planDays.splice(fromIdx+1);
+  // ── 2. Snapshot de IDs originales ANTES de truncar ────────────────────────
+  // (para comparar después y marcar _esNuevo correctamente)
+  const idsOriginales = planDays.map(d=>d.id);
 
-  // Función helper: siguiente día laborable
+  // ── 3. Truncar y reconstruir hacia adelante ───────────────────────────────
+  planDays.splice(fromIdx + 1);
+
   function nextWorkday(dateISO){
-    const d=new Date(dateISO+'T12:00:00');
+    const d = new Date(dateISO+'T12:00:00');
     d.setDate(d.getDate()+1);
-    if(d.getDay()===6) d.setDate(d.getDate()+2); // salta sáb→lun
-    if(d.getDay()===0) d.setDate(d.getDate()+1); // por si acaso dom→lun
+    if(d.getDay()===6) d.setDate(d.getDate()+2);
+    if(d.getDay()===0) d.setDate(d.getDate()+1);
     return d;
   }
 
-  let cursor=new Date(planDays[planDays.length-1].dateISO+'T12:00:00');
-  let dayIdx=planDays[planDays.length-1].dayIdx+1;
-  let semana=planDays[planDays.length-1].semana;
-  let guard=0;
+  let cursor = new Date(planDays[planDays.length-1].dateISO+'T12:00:00');
+  let dayIdx = planDays[planDays.length-1].dayIdx + 1;
+  let semana = planDays[planDays.length-1].semana;
+  let guard = 0;
 
-  while((contRestantes>0||motosEnAlmacen>0||motosEnCalle<motos)&&guard<200){
+  while((contRestantes>0 || motosEnAlmacen>0 || motosEnCalle<motos) && guard<300){
     guard++;
-    // Avanzar al siguiente día laborable
-    cursor=nextWorkday(cursor.toISOString().slice(0,10));
-    const dow=cursor.getDay();
-    if(dow===1) semana++; // lunes → nueva semana
-    const dateISO=cursor.toISOString().slice(0,10);
-    const dateStr=cursor.toLocaleDateString('es',{day:'2-digit',month:'2-digit'});
-    const cap=caps[dow]||0;
-    const acts=[];
+    cursor = nextWorkday(cursor.toISOString().slice(0,10));
+    const dow = cursor.getDay();
+    if(dow===1) semana++;
+    const dateISO = cursor.toISOString().slice(0,10);
+    const dateStr = cursor.toLocaleDateString('es',{day:'2-digit',month:'2-digit'});
+    const cap = caps[dow]||0;
+    const acts = [];
 
-    if(cap>0&&contRestantes>0){
-      const descHoy=Math.min(cap,contRestantes);
-      contRestantes-=descHoy;
-      const motosDesc=descHoy*36;
-      motosEnAlmacen+=motosDesc;
+    if(dateISO>=dateDescISO && cap>0 && contRestantes>0){
+      const descHoy = Math.min(cap, contRestantes);
+      contRestantes -= descHoy;
+      const motosDesc = descHoy*36;
+      motosEnAlmacen += motosDesc;
       acts.push({type:'descarga',planCont:descHoy,planMotos:motosDesc,personas:pd,horas:hContDesc*descHoy,acum:cont-contRestantes,total:cont});
     }
-    if(motosEnAlmacen>0){
-      const motosHoy=Math.min(36,motosEnAlmacen);
-      const hMont=pm>0?(motosHoy*totalMinMont/pm)/60:0;
-      motosEnAlmacen-=motosHoy; motosMontadas+=motosHoy;
+    if(dateISO>=dateMontISO && motosEnAlmacen>0){
+      const motosHoy = Math.min(36, motosEnAlmacen);
+      const hMont = pm>0?(motosHoy*totalMinMont/pm)/60:0;
+      motosEnAlmacen -= motosHoy; motosMontadas += motosHoy;
       acts.push({type:'montaje',planMotos:motosHoy,personas:pm,horas:hMont,acum:motosMontadas,total:motos});
     }
-    if(motosMontadas>motosEnCalle){
-      const despHoy=Math.min(motosDespDia,motosMontadas-motosEnCalle);
-      motosEnCalle+=despHoy;
+    if(dateISO>=dateDespISO && motosMontadas>motosEnCalle){
+      const despHoy = Math.min(motosDespDia, motosMontadas-motosEnCalle);
+      motosEnCalle += despHoy;
       acts.push({type:'despliegue',planMotos:despHoy,personas:pDesp,horas:hDespDia,acum:motosEnCalle,total:motos});
     }
 
     planDays.push({id:dateISO,dayName:dayNames[dow],dateStr,dateISO,activities:acts,dayIdx,semana});
     dayIdx++;
   }
+
+  // ── 4. Marcar _esNuevo: días que no existían o están en fecha diferente ────
+  planDays.forEach((d,i)=>{
+    d._esNuevo = (i >= idsOriginales.length) || (idsOriginales[i] !== d.id);
+  });
 }
 
 // ─── DESVIACIONES ────────────────────────────────────────────────────────────
@@ -1140,8 +1342,8 @@ const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCqA5p5qv6mBBTpt2VljhQkTSMPO48r8vA",
   authDomain:        "retroplanning-yego-turin.firebaseapp.com",
   databaseURL:       "https://retroplanning-yego-turin-default-rtdb.europe-west1.firebasedatabase.app",
-projectId: "retroplanning-yego-turin",
-storageBucket:     "retroplanning-yego-turin.firebasestorage.appm",
+  projectId:         "retroplanning-yego-turin",
+  storageBucket:     "retroplanning-yego-turin.firebasestorage.app",
   messagingSenderId: "423065097251",
   appId:             "1:423065097251:web:d40459cda9a74416434d96"
 };
@@ -1291,32 +1493,10 @@ function pushPlanDays(){
   }, 800);
 }
 
-// ─── REBUILD & RENDER HELPER ─────────────────────────────────────────────────
+// ─── REBUILD & RENDER HELPER (usado por Firebase sync) ───────────────────────
 function rebuildAndRender(){
-  const motos=vi('n-motos'), cont=Math.ceil(motos/36);
-  const pd=vi('personas-desc-camion')+vi('personas-desc-tareas');
-  const pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
-  const fechaStr=v('fecha-inicio').value||'2025-09-01';
-  const weeksMap={};
-  planDays.forEach(d=>{ if(!weeksMap[d.semana])weeksMap[d.semana]=[]; weeksMap[d.semana].push(d); });
-  const weeks=Object.keys(weeksMap).map(s=>parseInt(s)).sort((a,b)=>a-b).map(s=>({semana:s,days:weeksMap[s]}));
-  if(weeks.length) renderPlanning(weeks,motos,cont,pd,pm,pDesp,fechaStr);
-  renderDesviaciones();
+  renderFromPlanDays();
 }
-
-// ─── HOOK: guardar en Firebase tras cada saveRegistro ────────────────────────
-const _origSaveRegistro = saveRegistro;
-saveRegistro = function(){
-  _origSaveRegistro();
-  if(FB_CONFIGURED && db) pushRegistros();
-};
-
-// ─── HOOK: guardar planDays en Firebase tras generatePlanning ─────────────────
-const _origGeneratePlanning = generatePlanning;
-generatePlanning = function(){
-  _origGeneratePlanning();
-  if(FB_CONFIGURED && db) pushPlanDays();
-};
 
 // ─── ARRANQUE ────────────────────────────────────────────────────────────────
 updateUserUI();
