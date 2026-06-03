@@ -256,9 +256,6 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
 </div>
 
-<!-- DEBUG PANEL — eliminar cuando esté todo funcionando -->
-<div id="debug-panel" style="background:#1a1a2e;color:#00ff88;font-family:monospace;font-size:11px;padding:8px 2rem;max-height:120px;overflow-y:auto;border-bottom:1px solid #333;display:block"></div>
-
 <!-- TAB NAV -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('config')" id="tab-config">
@@ -746,8 +743,7 @@ function generatePlanning(){
   renderPlanning(weeks, motos, cont, pd, pm, pDesp, fechaDescStr);
   renderDesviaciones();
   const planBadge=weeks.length+' sem · '+motos+' motos';
-  v('badge-planning').textContent=planBadge;
-  document.getElementById('tabbadge-planning').textContent=planBadge;
+  const bpEl=document.getElementById('tabbadge-planning'); if(bpEl) bpEl.textContent=planBadge;
   if(!v('body-planning').classList.contains('open')) toggle('planning');
 
   // Sync a Firebase si está configurado
@@ -1093,11 +1089,10 @@ function renderFromPlanDays(){
   const weeks=Object.keys(weeksMap).map(s=>parseInt(s)).sort((a,b)=>a-b).map(s=>({semana:s,days:weeksMap[s]}));
   renderPlanning(weeks,motos,cont,pd,pm,pDesp,fechaStr);
   renderDesviaciones();
-  v('badge-desviacion').textContent=Object.keys(registros).length+' días registrados';
+  const bdEl=document.getElementById('badge-desviacion'); if(bdEl) bdEl.textContent=Object.keys(registros).length+' días registrados';
   // Actualizar tab badge
   const planBadge=weeks.length+' sem · '+motos+' motos';
-  v('badge-planning').textContent=planBadge;
-  document.getElementById('tabbadge-planning').textContent=planBadge;
+  const bpEl=document.getElementById('tabbadge-planning'); if(bpEl) bpEl.textContent=planBadge;
 }
 
 // ─── RECALC CASCADE ──────────────────────────────────────────────────────────
@@ -1462,11 +1457,7 @@ function updateUserUI(){
 }
 
 // ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
-function dbg(msg){
-  console.log('[YEGO]', msg);
-  const el = document.getElementById('debug-panel');
-  if(el) el.innerHTML += `<div>${new Date().toLocaleTimeString('es')} — ${msg}</div>`;
-}
+function dbg(msg){ /* debug desactivado */ }
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
 let _subscribed = false;
