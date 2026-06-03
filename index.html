@@ -1050,10 +1050,38 @@ function buildReprogActivity(type, val, personas, horas){
 }
 
 function renderFromPlanDays(){
-  const motos=vi('n-motos'), cont=Math.ceil(motos/36);
-  const pd=vi('personas-desc-camion')+vi('personas-desc-tareas');
-  const pm=vi('personas-montaje'), pDesp=vi('despliegue-personas');
-  const fechaStr=v('fecha-inicio-descarga').value||v('fecha-inicio').value||'2025-09-01';
+  if(!planDays.length) return;
+
+  // Extraer valores de planDays para no depender de los inputs
+  // (evita race condition cuando los inputs aún no están restaurados)
+  let motos=0, cont=0, pd=0, pm=0, pDesp=0, fechaStr='';
+
+  // Intentar leer de inputs primero; si son 0 o default, usar planDays
+  const inputMotos = vi('n-motos');
+  if(inputMotos && inputMotos !== 200){
+    motos = inputMotos;
+  } else {
+    // Deducir de planDays: buscar el total más alto en cualquier actividad
+    planDays.forEach(d=>d.activities.forEach(a=>{ if(a.total>motos) motos=a.total; }));
+    if(!motos) motos = inputMotos || 200;
+  }
+  cont = Math.ceil(motos/36);
+
+  // Extraer personas de la primera actividad de cada tipo encontrada
+  planDays.forEach(d=>d.activities.forEach(a=>{
+    if(a.type==='descarga' && !pd) pd=a.personas;
+    if(a.type==='montaje' && !pm) pm=a.personas;
+    if(a.type==='despliegue' && !pDesp) pDesp=a.personas;
+  }));
+  if(!pd) pd = vi('personas-desc-camion')+vi('personas-desc-tareas');
+  if(!pm) pm = vi('personas-montaje');
+  if(!pDesp) pDesp = vi('despliegue-personas');
+
+  // Fecha: usar la del primer día del planning
+  fechaStr = planDays[0].dateISO || v('fecha-inicio').value || '2025-09-01';
+
+  dbg('renderFromPlanDays() — motos='+motos+' cont='+cont+' pd='+pd+' pm='+pm+' pDesp='+pDesp+' días='+planDays.length);
+
   const weeksMap={};
   planDays.forEach(d=>{
     if(!weeksMap[d.semana]) weeksMap[d.semana]=[];
@@ -1063,6 +1091,10 @@ function renderFromPlanDays(){
   renderPlanning(weeks,motos,cont,pd,pm,pDesp,fechaStr);
   renderDesviaciones();
   v('badge-desviacion').textContent=Object.keys(registros).length+' días registrados';
+  // Actualizar tab badge
+  const planBadge=weeks.length+' sem · '+motos+' motos';
+  v('badge-planning').textContent=planBadge;
+  document.getElementById('tabbadge-planning').textContent=planBadge;
 }
 
 // ─── RECALC CASCADE ──────────────────────────────────────────────────────────
