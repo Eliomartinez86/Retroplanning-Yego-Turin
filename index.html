@@ -995,10 +995,19 @@ function saveRegistro(){
   // Reconstruir semanas y renderizar
   renderFromPlanDays();
 
-  // Sync Firebase
+  // Sync Firebase — guardar registros y planDays juntos con _ownWrite
   if(typeof FB_CONFIGURED!=='undefined' && FB_CONFIGURED && db){
-    pushRegistros();
-    pushPlanDays();
+    _ownWrite = true;
+    Promise.all([
+      db.ref('registros').set(registros),
+      db.ref('planDays').set(planDays.map(d=>({...d})))
+    ]).then(()=>{
+      setSyncStatus('ok',`Registro guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
+      setTimeout(()=>{ _ownWrite=false; setSyncStatus('ok',`Sincronizado · ${currentUser}`); },2000);
+    }).catch(e=>{
+      _ownWrite=false;
+      setSyncStatus('err','Error guardando registro: '+e.message);
+    });
   }
 }
 
@@ -1631,9 +1640,10 @@ function subscribeRealtime(){
 // ─── PUSH TO FIREBASE ────────────────────────────────────────────────────────
 function pushRegistros(){
   if(!db) return;
+  dbg('pushRegistros() — keys='+Object.keys(registros).length);
   db.ref('registros').set(registros)
-    .then(()=>setSyncStatus('ok',`Registros guardados · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`))
-    .catch(e=>setSyncStatus('err','Error: '+e.message));
+    .then(()=>{ dbg('pushRegistros() ✓ guardado'); setSyncStatus('ok',`Registros guardados · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); })
+    .catch(e=>{ dbg('pushRegistros() ERROR: '+e.message); setSyncStatus('err','Error: '+e.message); });
 }
 function pushPlanDays(){
   if(!db) return;
