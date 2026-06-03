@@ -666,6 +666,7 @@ function addAdmin(){
 
 // ─── GENERATE PLAN BASE ──────────────────────────────────────────────────────
 function generatePlanning(){
+  dbg('generatePlanning() llamado — reseteando planDays');
   registros={};
   planDays=[];
 
@@ -1552,11 +1553,13 @@ function loadAllAndSubscribe(){
 function subscribeRealtime(){
   db.ref('config').on('value', snap => {
     if(!snap.val()||isSyncing) return;
+    dbg('subscribeRealtime config fired — restoring');
     restoreConfig(snap.val());
   });
   db.ref('planDays').on('value', snap => {
     if(isSyncing) return;
     const arr=toArray(snap.val());
+    dbg('subscribeRealtime planDays fired — arr.length='+arr.length+' isSyncing='+isSyncing);
     if(!arr.length) return;
     planDays=arr;
     renderFromPlanDays();
@@ -1565,6 +1568,7 @@ function subscribeRealtime(){
   });
   db.ref('registros').on('value', snap => {
     if(isSyncing||!snap.val()) return;
+    dbg('subscribeRealtime registros fired');
     registros=snap.val();
     if(planDays.length) renderFromPlanDays();
     setSyncStatus('ok',`Registros actualizados · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
