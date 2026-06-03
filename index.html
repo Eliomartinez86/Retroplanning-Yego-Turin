@@ -1455,19 +1455,25 @@ function toArray(data){
 
 // ─── CARGA INICIAL ───────────────────────────────────────────────────────────
 function loadAllAndSubscribe(){
+  setSyncStatus('warn','Cargando config...');
   db.ref('config').once('value', s1 => {
-    if(s1.val()) restoreConfig(s1.val());
+    const cfg = s1.val();
+    setSyncStatus('warn', cfg ? 'Config encontrada, restaurando...' : 'Sin config en Firebase');
+    if(cfg) restoreConfig(cfg);
+    setSyncStatus('warn','Cargando planning...');
     db.ref('planDays').once('value', s2 => {
       const arr=toArray(s2.val());
+      setSyncStatus('warn', arr.length ? `Planning: ${arr.length} días, cargando registros...` : 'Sin planning en Firebase');
       if(arr.length) planDays=arr;
       db.ref('registros').once('value', s3 => {
-        if(s3.val()) registros=s3.val();
+        const regs = s3.val();
+        setSyncStatus('warn', regs ? `Registros encontrados, renderizando...` : 'Sin registros');
+        if(regs) registros=regs;
         if(planDays.length){
           renderFromPlanDays();
-          setSyncStatus('ok',`Datos cargados · ${currentUser}`);
-          setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2500);
+          setSyncStatus('ok',`✓ Todo cargado · ${planDays.length} días · ${currentUser}`);
         } else {
-          setSyncStatus('ok',`Sincronizado · ${currentUser}`);
+          setSyncStatus('ok',`Conectado · Sin planning guardado · ${currentUser}`);
         }
         subscribeRealtime();
       });
