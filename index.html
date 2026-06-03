@@ -1531,9 +1531,22 @@ async function loadAllAndSubscribe(){
     if(regs) registros = regs;
 
     // 4. Renderizar con todo cargado y en orden
-    dbg('planDays.length=' + planDays.length + ' — llamando renderFromPlanDays...');
     if(planDays.length){
       renderFromPlanDays();
+
+      // Avisar si la fecha del planning no coincide con la config
+      const planFirstDate = planDays[0].dateISO;
+      const configDate = cfg && cfg.fechaDescarga ? cfg.fechaDescarga : null;
+      if(configDate && planFirstDate && planFirstDate !== configDate){
+        const planMsg = document.getElementById('planning-output');
+        if(planMsg){
+          const warning = document.createElement('div');
+          warning.style.cssText = 'background:#FFF8E1;border:1px solid #E8D87A;border-radius:8px;padding:10px 16px;margin-bottom:1rem;font-size:13px;color:#B8860B;display:flex;align-items:center;gap:10px';
+          warning.innerHTML = `<span style="font-size:16px">⚠</span> La fecha de inicio en Configuración (<strong>${configDate}</strong>) no coincide con el planning guardado (<strong>${planFirstDate}</strong>). Pulsa <strong>"Generar planning →"</strong> para actualizarlo.`;
+          planMsg.insertBefore(warning, planMsg.firstChild);
+        }
+      }
+
       setSyncStatus('ok', `✓ Todo cargado · ${planDays.length} días · ${currentUser}`);
     } else {
       setSyncStatus('ok', `Conectado · Sin planning guardado · ${currentUser}`);
