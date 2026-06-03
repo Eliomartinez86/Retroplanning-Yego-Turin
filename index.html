@@ -256,6 +256,9 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
 </div>
 
+<!-- DEBUG PANEL -->
+<div id="debug-panel" style="background:#1a1a2e;color:#00ff88;font-family:monospace;font-size:11px;padding:8px 2rem;max-height:140px;overflow-y:auto;border-bottom:1px solid #333"></div>
+
 <!-- TAB NAV -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('config')" id="tab-config">
@@ -1457,7 +1460,11 @@ function updateUserUI(){
 }
 
 // ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
-function dbg(msg){ /* debug desactivado */ }
+function dbg(msg){
+  console.log('[YEGO]', msg);
+  const el = document.getElementById('debug-panel');
+  if(el) el.innerHTML += `<div>${new Date().toLocaleTimeString('es')} — ${msg}</div>`;
+}
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
 let _subscribed = false;
@@ -1618,18 +1625,23 @@ function pushRegistros(){
 }
 function pushPlanDays(){
   if(!db) return;
+  dbg('pushPlanDays() — planDays.length='+planDays.length);
   clearTimeout(syncTimeout);
   syncTimeout=setTimeout(()=>{
-    db.ref('planDays').set(planDays.map(d=>({...d})))
-      .then(()=>setSyncStatus('ok',`Planning guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`))
-      .catch(e=>setSyncStatus('err','Error guardando planning: '+e.message));
+    const payload = planDays.map(d=>({...d}));
+    dbg('pushPlanDays() enviando '+payload.length+' días a Firebase...');
+    db.ref('planDays').set(payload)
+      .then(()=>{ dbg('pushPlanDays() ✓ guardado correctamente'); setSyncStatus('ok',`Planning guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); })
+      .catch(e=>{ dbg('pushPlanDays() ERROR: '+e.message); setSyncStatus('err','Error guardando planning: '+e.message); });
   },500);
 }
 function pushConfig(){
   if(!db) return;
-  db.ref('config').set(collectConfig())
-    .then(()=>setSyncStatus('ok',`Config guardada · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`))
-    .catch(e=>console.error('Error config:',e));
+  const cfg = collectConfig();
+  dbg('pushConfig() — motos='+cfg.nMotos+' fechaDesc='+cfg.fechaDescarga);
+  db.ref('config').set(cfg)
+    .then(()=>{ dbg('pushConfig() ✓ guardado'); setSyncStatus('ok',`Config guardada · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); })
+    .catch(e=>{ dbg('pushConfig() ERROR: '+e.message); console.error('Error config:',e); });
 }
 
 // ─── REBUILD & RENDER ────────────────────────────────────────────────────────
