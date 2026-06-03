@@ -751,9 +751,9 @@ function generatePlanning(){
   if(!v('body-planning').classList.contains('open')) toggle('planning');
 
   // Guardar en Firebase directamente (sin debounce)
+  dbg('generatePlanning — FB_CONFIGURED='+FB_CONFIGURED+' db='+(db?'OK':'NULL')+' planDays.length='+planDays.length);
   if(FB_CONFIGURED && db){
     dbg('generatePlanning — guardando config y planDays en Firebase...');
-    // Marcar que estamos escribiendo nosotros para que subscribeRealtime lo ignore
     _ownWrite = true;
     Promise.all([
       db.ref('config').set(collectConfig()),
@@ -767,6 +767,8 @@ function generatePlanning(){
       dbg('generatePlanning — ERROR: '+e.message);
       setSyncStatus('err','Error guardando: '+e.message);
     });
+  } else {
+    dbg('generatePlanning — NO guardado: FB_CONFIGURED='+FB_CONFIGURED+' db='+(db?'OK':'NULL'));
   }
 }
 
