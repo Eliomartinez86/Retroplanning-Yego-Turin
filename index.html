@@ -1578,25 +1578,33 @@ async function loadAllAndSubscribe(){
 
 // ─── LISTENERS TIEMPO REAL ───────────────────────────────────────────────────
 function subscribeRealtime(){
+  // Firebase .on('value') siempre dispara inmediatamente con el valor actual.
+  // Ya cargamos esos datos en loadAllAndSubscribe, así que ignoramos
+  // el primer disparo de cada listener con un flag por referencia.
+  let firstConfig=true, firstPlan=true, firstRegs=true;
+
   db.ref('config').on('value', snap => {
+    if(firstConfig){ firstConfig=false; return; } // ignorar disparo inicial
     if(!snap.val()||isSyncing) return;
-    dbg('subscribeRealtime config fired — restoring');
     restoreConfig(snap.val());
   });
+
   db.ref('planDays').on('value', snap => {
+    if(firstPlan){ firstPlan=false; return; } // ignorar disparo inicial
     if(isSyncing) return;
     const arr=toArray(snap.val());
-    dbg('subscribeRealtime planDays fired — arr.length='+arr.length+' isSyncing='+isSyncing);
     if(!arr.length) return;
     planDays = arr.map(d=>({...d, activities: Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
     renderFromPlanDays();
     setSyncStatus('ok',`Planning actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
     setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),3000);
   });
+
   db.ref('registros').on('value', snap => {
-    if(isSyncing||!snap.val()) return;
-    dbg('subscribeRealtime registros fired');
-    registros=snap.val();
+    if(firstRegs){ firstRegs=false; return; } // ignorar disparo inicial
+    if(isSyncing) return;
+    const data=snap.val();
+    if(data) registros=data;
     if(planDays.length) renderFromPlanDays();
     setSyncStatus('ok',`Registros actualizados · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
     setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),3000);
