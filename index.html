@@ -256,8 +256,6 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
 </div>
 
-<!-- DEBUG PANEL -->
-<div id="debug-panel" style="background:#1a1a2e;color:#00ff88;font-family:monospace;font-size:11px;padding:8px 2rem;max-height:140px;overflow-y:auto;border-bottom:1px solid #333"></div>
 <!-- TAB NAV -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('config')" id="tab-config">
@@ -1430,8 +1428,8 @@ function renderDesviaciones(){
   if(pctDesp!==null) parts.push(`🛵 ${pctDesp}%`);
   // Si hay porcentajes los mostramos; si no, mantenemos el conteo de días del badge temprano
   const desvBadge = parts.length ? parts.join(' · ') : earlyBadge;
-  v('badge-desviacion').textContent=desvBadge;
-  document.getElementById('tabbadge-seguimiento').textContent=desvBadge;
+  const bdEl2=document.getElementById('badge-desviacion'); if(bdEl2) bdEl2.textContent=desvBadge;
+  const tsEl=document.getElementById('tabbadge-seguimiento'); if(tsEl) tsEl.textContent=desvBadge;
 
   // Dibujar gráficos después de que el DOM esté actualizado
   setTimeout(renderCharts, 80);
@@ -1496,11 +1494,7 @@ function updateUserUI(){
 }
 
 // ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
-function dbg(msg){
-  console.log('[YEGO]', msg);
-  const el = document.getElementById('debug-panel');
-  if(el) el.innerHTML += `<div>${new Date().toLocaleTimeString('es')} — ${msg}</div>`;
-}
+function dbg(msg){ /* desactivado */ }
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
 let _subscribed = false;
