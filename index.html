@@ -319,6 +319,10 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
         <div class="metric"><div class="metric-label">Días activos/sem</div><div class="metric-value" id="m-dias">5</div></div>
         <div class="metric"><div class="metric-label">Contenedores/sem</div><div class="metric-value" id="m-contsem">10</div></div>
       </div>
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px dashed var(--border);display:flex;align-items:center;gap:12px">
+        <button class="btn-add" style="margin-top:0" onclick="pushConfig();this.textContent='✓ Guardado';setTimeout(()=>this.textContent='☁ Guardar configuración en la nube',2000)">☁ Guardar configuración en la nube</button>
+        <span style="font-size:12px;color:var(--text-muted)">Guarda los inputs actuales en Firebase para que todos vean la misma configuración al cargar.</span>
+      </div>
     </div>
   </div>
 
@@ -1413,7 +1417,8 @@ function enterApp(){
   localStorage.setItem('yego_user', name);
   v('user-modal').style.display = 'none';
   updateUserUI();
-  if(FB_CONFIGURED) initFirebase();
+  // Solo iniciar Firebase si no está ya iniciado
+  if(FB_CONFIGURED && !_subscribed) initFirebase();
 }
 function updateUserUI(){
   const initials = currentUser.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
@@ -1489,6 +1494,11 @@ function loadAllAndSubscribe(){
         const regs = s3.val();
         dbg('registros cargados: ' + (regs ? Object.keys(regs).length+' entradas' : 'ninguno'));
         if(regs) registros=regs;
+        // Si no había config guardada pero sí hay planDays, guardar config ahora
+        if(!cfg && planDays.length){
+          dbg('Config null pero hay planDays — guardando config automáticamente...');
+          pushConfig();
+        }
         if(planDays.length){
           renderFromPlanDays();
           setSyncStatus('ok',`✓ Todo cargado · ${planDays.length} días · ${currentUser}`);
