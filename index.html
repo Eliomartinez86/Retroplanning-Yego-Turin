@@ -1438,20 +1438,20 @@ let _subscribed = false;
 let _presenceRef = null;
 
 function initFirebase(){
+  // Evitar doble inicialización
+  if(_subscribed) { dbg('initFirebase() ignorado — ya suscrito'); return; }
   try {
     dbg('initFirebase() llamado');
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
     dbg('Firebase app iniciada');
     setSyncStatus('warn','Conectando...');
-    if(!_subscribed){
-      _subscribed = true;
-      _presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
-      _presenceRef.set({nombre: currentUser, desde: Date.now()});
-      _presenceRef.onDisconnect().remove();
-      dbg('Presencia registrada, llamando loadAllAndSubscribe...');
-      loadAllAndSubscribe();
-    }
+    _subscribed = true;
+    _presenceRef = db.ref('presencia/' + sanitizeKey(currentUser));
+    _presenceRef.set({nombre: currentUser, desde: Date.now()});
+    _presenceRef.onDisconnect().remove();
+    dbg('Presencia registrada, llamando loadAllAndSubscribe...');
+    loadAllAndSubscribe();
     db.ref('.info/connected').on('value', snap => {
       dbg('.info/connected = ' + snap.val());
       if(!snap.val()) setSyncStatus('err','Sin conexión — modo local');
