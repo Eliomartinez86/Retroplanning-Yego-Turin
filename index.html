@@ -1509,43 +1509,58 @@ function toArray(data){
 }
 
 // ─── CARGA INICIAL ───────────────────────────────────────────────────────────
-function loadAllAndSubscribe(){
-  setSyncStatus('warn','Cargando config...');
+async function loadAllAndSubscribe(){
+  setSyncStatus('warn','Cargando datos...');
   dbg('loadAllAndSubscribe() iniciado');
-  db.ref('config').once('value', s1 => {
+  try {
+    // 1. Config
+    const s1 = await db.ref('config').once('value');
     const cfg = s1.val();
     dbg('config cargada: ' + (cfg ? 'SÍ (ciudad='+cfg.ciudad+', motos='+cfg.nMotos+')' : 'NO (null)'));
-    setSyncStatus('warn', cfg ? 'Config encontrada, restaurando...' : 'Sin config en Firebase');
     if(cfg) restoreConfig(cfg);
-    setSyncStatus('warn','Cargando planning...');
-    db.ref('planDays').once('value', s2 => {
-      const arr=toArray(s2.val());
-      dbg('planDays cargado: ' + arr.length + ' días');
-      setSyncStatus('warn', arr.length ? `Planning: ${arr.length} días, cargando registros...` : 'Sin planning en Firebase');
-      if(arr.length) planDays=arr;
-      db.ref('registros').once('value', s3 => {
-        const regs = s3.val();
-        dbg('registros cargados: ' + (regs ? Object.keys(regs).length+' entradas' : 'ninguno'));
-        if(regs) registros=regs;
-        // Si no había config guardada pero sí hay planDays, guardar config ahora
-        if(!cfg && planDays.length){
-          dbg('Config null pero hay planDays — guardando config automáticamente...');
-          pushConfig();
-        }
-        if(planDays.length){
-          renderFromPlanDays();
-          setSyncStatus('ok',`✓ Todo cargado · ${planDays.length} días · ${currentUser}`);
-        } else {
-          setSyncStatus('ok',`Conectado · Sin planning guardado · ${currentUser}`);
-        }
-        subscribeRealtime();
-      });
-    });
-  });
+
+    // 2. PlanDays
+    const s2 = await db.ref('planDays').once('value');
+    const arr = toArray(s2.val());
+    dbg('planDays cargado: ' + arr.length + ' días');
+    if(arr.length) planDays = arr;
+
+    // 3. Registros
+    const s3 = await db.ref('registros').once('value');
+    const regs = s3.val();
+    dbg('registros cargados: ' + (regs ? Object.keys(regs).length+' entradas' : 'ninguno'));
+    if(regs) registros = regs;
+
+    // 4. Renderizar con todo cargado y en orden
+    dbg('planDays.length=' + planDays.length + ' — llamando renderFromPlanDays...');
+    if(planDays.length){
+      renderFromPlanDays();
+      setSyncStatus('ok', `✓ Todo cargado · ${planDays.length} días · ${currentUser}`);
+    } else {
+      setSyncStatus('ok', `Conectado · Sin planning guardado · ${currentUser}`);
+    }
+
+    // 5. Si no había config, guardarla ahora
+    if(!cfg && planDays.length){
+      dbg('Config null — guardando automáticamente...');
+      pushConfig();
+    }
+
+    // 6. Activar listeners en tiempo real
+    subscribeRealtime();
+
+  } catch(e){
+    dbg('ERROR en carga: ' + e.message);
+    setSyncStatus('err', 'Error cargando datos: ' + e.message);
+  }
+
+  // Escuchar presencia (independiente del await)
   db.ref('presencia').on('value', snap => {
     if(!snap.val()) return;
-    const activos=Object.values(snap.val()).map(u=>u.nombre).filter(n=>n!==currentUser);
-    setSyncStatus('ok', activos.length ? `En línea: ${[currentUser,...activos].join(', ')}` : `Sincronizado · ${currentUser}`);
+    const activos = Object.values(snap.val()).map(u=>u.nombre).filter(n=>n!==currentUser);
+    setSyncStatus('ok', activos.length
+      ? `En línea: ${[currentUser,...activos].join(', ')}`
+      : `Sincronizado · ${currentUser}`);
   });
 }
 
