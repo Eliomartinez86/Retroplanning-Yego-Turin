@@ -1052,6 +1052,8 @@ function buildReprogActivity(type, val, personas, horas){
 
 function renderFromPlanDays(){
   if(!planDays.length) return;
+  // Sanitizar por si acaso algún día tiene activities undefined
+  planDays = planDays.map(d=>({...d, activities: Array.isArray(d.activities)?d.activities:[]}));
 
   // Extraer valores de planDays para no depender de los inputs
   // (evita race condition cuando los inputs aún no están restaurados)
@@ -1523,7 +1525,13 @@ async function loadAllAndSubscribe(){
     const s2 = await db.ref('planDays').once('value');
     const arr = toArray(s2.val());
     dbg('planDays cargado: ' + arr.length + ' días');
-    if(arr.length) planDays = arr;
+    if(arr.length){
+      // Sanitizar: garantizar que cada día tiene activities como array
+      planDays = arr.map(d => ({
+        ...d,
+        activities: Array.isArray(d.activities) ? d.activities : toArray(d.activities) || []
+      }));
+    }
 
     // 3. Registros
     const s3 = await db.ref('registros').once('value');
@@ -1576,7 +1584,7 @@ function subscribeRealtime(){
     const arr=toArray(snap.val());
     dbg('subscribeRealtime planDays fired — arr.length='+arr.length+' isSyncing='+isSyncing);
     if(!arr.length) return;
-    planDays=arr;
+    planDays = arr.map(d=>({...d, activities: Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
     renderFromPlanDays();
     setSyncStatus('ok',`Planning actualizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
     setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),3000);
