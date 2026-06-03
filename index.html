@@ -1590,8 +1590,7 @@ function subscribeRealtime(){
   });
 
   db.ref('planDays').on('value', snap => {
-    if(firstPlan){ firstPlan=false; return; } // ignorar disparo inicial
-    if(isSyncing) return;
+    if(firstPlan){ firstPlan=false; return; }
     const arr=toArray(snap.val());
     if(!arr.length) return;
     planDays = arr.map(d=>({...d, activities: Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
@@ -1601,8 +1600,7 @@ function subscribeRealtime(){
   });
 
   db.ref('registros').on('value', snap => {
-    if(firstRegs){ firstRegs=false; return; } // ignorar disparo inicial
-    if(isSyncing) return;
+    if(firstRegs){ firstRegs=false; return; }
     const data=snap.val();
     if(data) registros=data;
     if(planDays.length) renderFromPlanDays();
@@ -1613,27 +1611,25 @@ function subscribeRealtime(){
 
 // ─── PUSH TO FIREBASE ────────────────────────────────────────────────────────
 function pushRegistros(){
-  if(!db||isSyncing) return;
-  isSyncing=true;
+  if(!db) return;
   db.ref('registros').set(registros)
-    .then(()=>{ setSyncStatus('ok',`Guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2000); })
-    .catch(e=>setSyncStatus('err','Error: '+e.message))
-    .finally(()=>isSyncing=false);
+    .then(()=>setSyncStatus('ok',`Registros guardados · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`))
+    .catch(e=>setSyncStatus('err','Error: '+e.message));
 }
 function pushPlanDays(){
   if(!db) return;
   clearTimeout(syncTimeout);
   syncTimeout=setTimeout(()=>{
-    isSyncing=true;
     db.ref('planDays').set(planDays.map(d=>({...d})))
-      .then(()=>{ setSyncStatus('ok',`Sincronizado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`); setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`),2000); })
-      .catch(e=>setSyncStatus('err','Error: '+e.message))
-      .finally(()=>isSyncing=false);
-  },800);
+      .then(()=>setSyncStatus('ok',`Planning guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`))
+      .catch(e=>setSyncStatus('err','Error guardando planning: '+e.message));
+  },500);
 }
 function pushConfig(){
   if(!db) return;
-  db.ref('config').set(collectConfig()).catch(e=>console.error('Error config:',e));
+  db.ref('config').set(collectConfig())
+    .then(()=>setSyncStatus('ok',`Config guardada · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`))
+    .catch(e=>console.error('Error config:',e));
 }
 
 // ─── REBUILD & RENDER ────────────────────────────────────────────────────────
