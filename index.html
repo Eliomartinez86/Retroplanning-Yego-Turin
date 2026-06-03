@@ -989,16 +989,17 @@ function saveRegistro(){
   });
   reg._hasDesvio=hasDesvio;
   registros[dayId]=reg;
+  dbg('saveRegistro — registro guardado localmente, iniciando Firebase sync...');
 
   // ── Inyectar reprogramaciones en planDays ─────────────────────────────────
-  reprogramaciones.forEach(rp=>{
-    injectReprogramado(rp);
-  });
-
-  closeModal();
-
-  // Reconstruir semanas y renderizar
-  renderFromPlanDays();
+  try {
+    reprogramaciones.forEach(rp=>{ injectReprogramado(rp); });
+    closeModal();
+    renderFromPlanDays();
+  } catch(e) {
+    dbg('saveRegistro — ERROR en render: '+e.message);
+    closeModal();
+  }
 
   // Sync Firebase — guardar registros y planDays juntos con _ownWrite
   if(typeof FB_CONFIGURED!=='undefined' && FB_CONFIGURED && db){
@@ -1013,7 +1014,7 @@ function saveRegistro(){
       setTimeout(()=>{ _ownWrite=false; setSyncStatus('ok',`Sincronizado · ${currentUser}`); },2000);
     }).catch(e=>{
       _ownWrite=false;
-      dbg('saveRegistro — ERROR: '+e.message);
+      dbg('saveRegistro — ERROR Firebase: '+e.message);
       setSyncStatus('err','Error guardando registro: '+e.message);
     });
   } else {
