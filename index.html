@@ -749,7 +749,6 @@ function generatePlanning(){
   renderDesviaciones();
   const planBadge=weeks.length+' sem · '+motos+' motos';
   const bpEl=document.getElementById('tabbadge-planning'); if(bpEl) bpEl.textContent=planBadge;
-  if(!v('body-planning').classList.contains('open')) toggle('planning');
 
   // Guardar en Firebase directamente (sin debounce)
   dbg('generatePlanning — FB_CONFIGURED='+FB_CONFIGURED+' db='+(db?'OK':'NULL')+' planDays.length='+planDays.length);
