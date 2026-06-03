@@ -743,7 +743,10 @@ function generatePlanning(){
   if(!v('body-planning').classList.contains('open')) toggle('planning');
 
   // Sync a Firebase si está configurado
-  if(FB_CONFIGURED && db) pushPlanDays();
+  if(FB_CONFIGURED && db){
+    pushConfig();
+    pushPlanDays();
+  }
 }
 
 // ─── RENDER PLANNING ─────────────────────────────────────────────────────────
@@ -1469,28 +1472,35 @@ function subscribeToRemoteChanges(){
     return [];
   }
 
-  // ── Cargar estado inicial de planDays ──────────────────────────────────────
-  db.ref('planDays').once('value', snap => {
-    const arr = toArray(snap.val());
-    if(arr.length > 0){
+  // ── Cargar estado inicial: config → planDays → registros ──────────────────
+  db.ref('config').once('value', snapCfg => {
+    const cfg = snapCfg.val();
+    if(cfg){
       remoteUpdateInProgress = true;
-      planDays = arr;
+      restoreConfig(cfg);
       remoteUpdateInProgress = false;
-      setSyncStatus('ok', `Planning cargado · ${currentUser}`);
-      setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 2000);
+      setSyncStatus('ok', `Configuración restaurada · ${currentUser}`);
     }
-    // Cargar registros después (necesitamos planDays primero para renderizar)
-    db.ref('registros').once('value', snapR => {
-      const data = snapR.val();
-      if(data){
+
+    db.ref('planDays').once('value', snap => {
+      const arr = toArray(snap.val());
+      if(arr.length > 0){
         remoteUpdateInProgress = true;
-        registros = data;
+        planDays = arr;
         remoteUpdateInProgress = false;
+        setSyncStatus('ok', `Planning cargado · ${currentUser}`);
+        setTimeout(()=>setSyncStatus('ok',`Sincronizado · ${currentUser}`), 2000);
       }
-      // Renderizar con los datos iniciales completos
-      if(planDays.length > 0) rebuildAndRender();
-      // Ahora suscribir a cambios en tiempo real
-      listenRealtime(toArray);
+      db.ref('registros').once('value', snapR => {
+        const data = snapR.val();
+        if(data){
+          remoteUpdateInProgress = true;
+          registros = data;
+          remoteUpdateInProgress = false;
+        }
+        if(planDays.length > 0) rebuildAndRender();
+        listenRealtime(toArray);
+      });
     });
   });
 
@@ -1508,6 +1518,16 @@ function subscribeToRemoteChanges(){
 }
 
 function listenRealtime(toArray){
+  // Escuchar cambios de config en tiempo real
+  db.ref('config').on('value', snap => {
+    if(isSyncing || remoteUpdateInProgress) return;
+    const cfg = snap.val();
+    if(!cfg) return;
+    remoteUpdateInProgress = true;
+    restoreConfig(cfg);
+    remoteUpdateInProgress = false;
+  });
+
   // Escuchar cambios de planDays en tiempo real (de otros usuarios)
   db.ref('planDays').on('value', snap => {
     if(isSyncing) return;
@@ -1555,13 +1575,10 @@ function pushRegistros(){
 
 function pushPlanDays(){
   if(!db || isSyncing || remoteUpdateInProgress) return;
-  // Debounce: esperar 800ms por si hay más cambios
   clearTimeout(syncTimeout);
   syncTimeout = setTimeout(()=>{
     isSyncing = true;
     setSyncStatus('warn','Sincronizando planning...');
-    // Firebase no acepta objetos con claves numéricas como arrays directamente
-    // Convertimos a objeto plano para mayor robustez
     const payload = planDays.map(d=>({...d}));
     db.ref('planDays').set(payload)
       .then(()=>{
@@ -1571,6 +1588,92 @@ function pushPlanDays(){
       .catch(e=>setSyncStatus('err','Error sync: '+e.message))
       .finally(()=>isSyncing=false);
   }, 800);
+}
+
+// ─── CONFIG SNAPSHOT ─────────────────────────────────────────────────────────
+function collectConfig(){
+  // Inputs de configuración general
+  const cfg = {
+    ciudad: v('ciudad').value,
+    fechaInicio: v('fecha-inicio').value,
+    nMotos: v('n-motos').value,
+    caps: [1,2,3,4,5,6,7].map(i=>v('cap-'+i).value),
+    fechaDescarga: v('fecha-inicio-descarga').value,
+    fechaMontaje: v('fecha-inicio-montaje').value,
+    fechaDespliegue: v('fecha-inicio-despliegue').value,
+    personasDescCamion: v('personas-desc-camion').value,
+    personasDescTareas: v('personas-desc-tareas').value,
+    personasMontaje: v('personas-montaje').value,
+    personasDespliegue: v('despliegue-personas').value,
+    motosDesp: v('despliegue-motos-dia').value,
+    minMotoDesp: v('despliegue-min-moto').value,
+    // Tareas descarga camión
+    tareasDescCamion: [...v('tbody-desc-camion').querySelectorAll('tr')].map(r=>{
+      const ins=r.querySelectorAll('input');
+      return {nombre:ins[0].value, cant:ins[1].value, mins:ins[2].value};
+    }),
+    // Tareas descarga tareas
+    tareasDescTareas: [...v('tbody-desc-tareas').querySelectorAll('tr')].map(r=>{
+      const ins=r.querySelectorAll('input');
+      return {nombre:ins[0].value, cant:ins[1].value, mins:ins[2].value};
+    }),
+    // Piezas montaje
+    tareasMontaje: [...v('tbody-montaje').querySelectorAll('tr')].map(r=>{
+      const ins=r.querySelectorAll('input');
+      return {nombre:ins[0].value, mins:ins[1].value};
+    }),
+    // Admin
+    adminItems: adminItems,
+  };
+  return cfg;
+}
+
+function restoreConfig(cfg){
+  if(!cfg) return;
+  if(cfg.ciudad)    v('ciudad').value = cfg.ciudad;
+  if(cfg.fechaInicio) v('fecha-inicio').value = cfg.fechaInicio;
+  if(cfg.nMotos)    v('n-motos').value = cfg.nMotos;
+  if(cfg.caps)      cfg.caps.forEach((val,i)=>{ if(v('cap-'+(i+1))) v('cap-'+(i+1)).value=val; });
+  if(cfg.fechaDescarga)  v('fecha-inicio-descarga').value = cfg.fechaDescarga;
+  if(cfg.fechaMontaje)   v('fecha-inicio-montaje').value  = cfg.fechaMontaje;
+  if(cfg.fechaDespliegue)v('fecha-inicio-despliegue').value= cfg.fechaDespliegue;
+  if(cfg.personasDescCamion) v('personas-desc-camion').value = cfg.personasDescCamion;
+  if(cfg.personasDescTareas) v('personas-desc-tareas').value = cfg.personasDescTareas;
+  if(cfg.personasMontaje)    v('personas-montaje').value     = cfg.personasMontaje;
+  if(cfg.personasDespliegue) v('despliegue-personas').value  = cfg.personasDespliegue;
+  if(cfg.motosDesp)   v('despliegue-motos-dia').value = cfg.motosDesp;
+  if(cfg.minMotoDesp) v('despliegue-min-moto').value  = cfg.minMotoDesp;
+
+  // Restaurar tareas descarga camión
+  if(cfg.tareasDescCamion){
+    v('tbody-desc-camion').innerHTML='';
+    cfg.tareasDescCamion.forEach(t=>addTaskDescCamion(t.nombre,t.cant,t.mins));
+  }
+  // Restaurar tareas descarga tareas
+  if(cfg.tareasDescTareas){
+    v('tbody-desc-tareas').innerHTML='';
+    cfg.tareasDescTareas.forEach(t=>addTaskDescTareas(t.nombre,t.cant,t.mins));
+  }
+  // Restaurar piezas montaje
+  if(cfg.tareasMontaje){
+    v('tbody-montaje').innerHTML='';
+    cfg.tareasMontaje.forEach(t=>addTaskMontaje(t.nombre,t.mins));
+  }
+  // Restaurar admin
+  if(cfg.adminItems){
+    adminItems = cfg.adminItems;
+    renderAdmin();
+  }
+  // Actualizar todos los badges y métricas
+  calcContainers();
+  updateBadgeConfig();
+  updateBadges();
+  updateBadgesDespliegue();
+}
+
+function pushConfig(){
+  if(!db || remoteUpdateInProgress) return;
+  db.ref('config').set(collectConfig()).catch(e=>console.error('Error guardando config:',e));
 }
 
 // ─── REBUILD & RENDER HELPER (usado por Firebase sync) ───────────────────────
