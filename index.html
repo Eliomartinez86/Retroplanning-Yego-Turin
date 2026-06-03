@@ -668,6 +668,7 @@ function addAdmin(){
 // ─── GENERATE PLAN BASE ──────────────────────────────────────────────────────
 function generatePlanning(){
   dbg('generatePlanning() llamado — reseteando planDays');
+  try {
   registros={};
   planDays=[];
 
@@ -769,6 +770,9 @@ function generatePlanning(){
     });
   } else {
     dbg('generatePlanning — NO guardado: FB_CONFIGURED='+FB_CONFIGURED+' db='+(db?'OK':'NULL'));
+  }
+  } catch(err) {
+    dbg('generatePlanning ERROR: ' + err.message + ' | stack: ' + (err.stack||'').split('\n')[1]);
   }
 }
 
