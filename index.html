@@ -256,6 +256,8 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
 </div>
 
+<!-- DEBUG PANEL -->
+<div id="debug-panel" style="background:#1a1a2e;color:#00ff88;font-family:monospace;font-size:11px;padding:8px 2rem;max-height:140px;overflow-y:auto;border-bottom:1px solid #333"></div>
 <!-- TAB NAV -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('config')" id="tab-config">
@@ -997,17 +999,22 @@ function saveRegistro(){
 
   // Sync Firebase — guardar registros y planDays juntos con _ownWrite
   if(typeof FB_CONFIGURED!=='undefined' && FB_CONFIGURED && db){
+    dbg('saveRegistro — guardando en Firebase, registros keys='+Object.keys(registros).length);
     _ownWrite = true;
     Promise.all([
       db.ref('registros').set(registros),
       db.ref('planDays').set(planDays.map(d=>({...d})))
     ]).then(()=>{
+      dbg('saveRegistro — ✓ guardado en Firebase');
       setSyncStatus('ok',`Registro guardado · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`);
       setTimeout(()=>{ _ownWrite=false; setSyncStatus('ok',`Sincronizado · ${currentUser}`); },2000);
     }).catch(e=>{
       _ownWrite=false;
+      dbg('saveRegistro — ERROR: '+e.message);
       setSyncStatus('err','Error guardando registro: '+e.message);
     });
+  } else {
+    dbg('saveRegistro — NO guardado: FB_CONFIGURED='+FB_CONFIGURED+' db='+(db?'OK':'NULL'));
   }
 }
 
@@ -1485,7 +1492,11 @@ function updateUserUI(){
 }
 
 // ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
-function dbg(msg){ /* debug desactivado */ }
+function dbg(msg){
+  console.log('[YEGO]', msg);
+  const el = document.getElementById('debug-panel');
+  if(el) el.innerHTML += `<div>${new Date().toLocaleTimeString('es')} — ${msg}</div>`;
+}
 
 // ─── FIREBASE INIT ───────────────────────────────────────────────────────────
 let _subscribed = false;
