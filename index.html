@@ -129,7 +129,23 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
 .tag-legal{background:var(--purple-light);color:#5849C2;}
 .tag-rrhh{background:#FDEDEF;color:#C2303B;}
 .tag-infra{background:#EBF2FF;color:#2469DB;}
-.subsection{padding:4px 0 8px;}
+/* COSTES */
+.costes-semana{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:1.25rem;overflow:hidden;box-shadow:var(--shadow);}
+.costes-semana-header{background:var(--navy);color:var(--white);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;}
+.costes-semana-title{font-size:13px;font-weight:700;}
+.costes-semana-total{font-size:13px;font-weight:700;color:var(--amber);}
+.costes-table{width:100%;border-collapse:collapse;font-size:13px;}
+.costes-table th{text-align:left;padding:8px 12px;background:var(--off);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);}
+.costes-table td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.costes-table tr:last-child td{border-bottom:none;}
+.costes-table input[type=number]{width:70px;text-align:center;padding:4px 6px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--white);}
+.costes-total-row td{background:var(--off);font-weight:700;}
+.costes-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:1.5rem;}
+.costes-kpi{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);}
+.costes-kpi .ck-label{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;}
+.costes-kpi .ck-val{font-size:22px;font-weight:700;color:var(--navy);font-family:'DM Mono',monospace;}
+.costes-kpi .ck-sub{font-size:11px;color:var(--text-muted);margin-top:3px;}
+/* SUBSECTIONS */
 .subsection-header{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
 .subsection-icon{font-size:15px;}
 .subsection-title{font-size:13px;font-weight:700;color:var(--navy);}
@@ -268,6 +284,10 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   <button class="tab-btn" onclick="switchTab('seguimiento')" id="tab-seguimiento">
     <span class="tab-icon">📊</span> Seguimiento
     <span class="tab-badge" id="tabbadge-seguimiento">Sin datos</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('costes')" id="tab-costes">
+    <span class="tab-icon">💶</span> Costes
+    <span class="tab-badge" id="tabbadge-costes">–</span>
   </button>
 </nav>
 
@@ -467,6 +487,51 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
     </div>
   </div>
 
+  <!-- COSTES CONFIG -->
+  <div class="section-card">
+    <div class="section-header" onclick="toggle('costes-config')">
+      <div class="section-icon" style="background:#FFF0E0;color:#C85000">💶</div>
+      <span class="section-title">Parámetros de costes</span>
+      <span class="section-badge" id="badge-costes-config">–</span>
+      <span class="chevron" id="chev-costes-config">▼</span>
+    </div>
+    <div class="section-body" id="body-costes-config">
+
+      <!-- Costes fijos por persona/día -->
+      <div class="subsection">
+        <div class="subsection-header"><span class="subsection-icon">📋</span><span class="subsection-title">Costes diarios por persona</span></div>
+        <div class="form-grid" style="margin-top:10px">
+          <div class="form-group">
+            <label>Dietas (€/día/persona)</label>
+            <input type="number" id="coste-dietas" value="40" min="0" step="1" oninput="updateCostesConfig()">
+          </div>
+          <div class="form-group">
+            <label>Bonus desplazamiento (€/día/persona)</label>
+            <input type="number" id="coste-bonus" value="25" min="0" step="1" readonly style="background:var(--off);color:var(--text-muted)">
+          </div>
+          <div class="form-group">
+            <label>Alojamiento (€/noche/persona)</label>
+            <input type="number" id="coste-alojamiento" value="80" min="0" step="1" oninput="updateCostesConfig()">
+          </div>
+        </div>
+        <div class="info-box" style="margin-top:10px">El bonus de desplazamiento (25€/día) es fijo. Dietas y alojamiento son editables.</div>
+      </div>
+
+      <div class="subsection-divider"></div>
+
+      <!-- Vuelos por ciudad de origen -->
+      <div class="subsection">
+        <div class="subsection-header"><span class="subsection-icon">✈️</span><span class="subsection-title">Equipos por ciudad de origen</span></div>
+        <div class="info-box" style="margin-top:10px;margin-bottom:12px">Añade las ciudades desde las que viajan los equipos. El coste salarial se prorratea sobre 220 días laborables anuales.</div>
+        <table class="tasks-table">
+          <thead><tr><th>Ciudad de origen</th><th style="width:160px">Vuelo ida+vuelta (€/p)</th><th style="width:170px">Salario anual medio (€)</th><th style="width:38px"></th></tr></thead>
+          <tbody id="tbody-vuelos"></tbody>
+        </table>
+        <button class="btn-add" onclick="addCiudadVuelo()">+ Añadir ciudad</button>
+      </div>
+    </div>
+  </div>
+
   <!-- GENERAR -->
   <div style="padding:1.5rem;background:var(--navy);border-radius:var(--radius);display:flex;align-items:center;justify-content:space-between;gap:1rem;box-shadow:var(--shadow);">
     <div>
@@ -491,6 +556,15 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   <div id="desviacion-output">
     <div class="no-data-msg" style="border:1px solid var(--border);border-radius:var(--radius);background:var(--white)">
       Genera el planning y registra ejecución de días pasados para ver el análisis.
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TAB 4: COSTES ═══ -->
+<div class="tab-panel" id="panel-costes">
+  <div id="costes-output">
+    <div class="no-data-msg" style="border:1px solid var(--border);border-radius:var(--radius);background:var(--white)">
+      Genera el planning y configura los parámetros de costes para ver el desglose económico.
     </div>
   </div>
 </div>
@@ -666,6 +740,174 @@ function renderAdmin(){
 function addAdmin(){
   const txt=v('admin-input').value.trim(); if(!txt)return;
   adminItems.push({text:txt,tag:v('admin-tag').value}); v('admin-input').value=''; renderAdmin();
+}
+
+// ─── COSTES ──────────────────────────────────────────────────────────────────
+let ciudadesVuelo = [
+  {ciudad:'Valencia', precio:200},
+  {ciudad:'Burdeos', precio:180},
+];
+// costesSemanales[semana] = {[ciudad]: nPersonas}
+let costesSemanales = {};
+
+function addCiudadVuelo(ciudad='', precio=200, salario=22000){
+  const tbody = v('tbody-vuelos');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" value="${ciudad}" placeholder="Ej: Madrid, París..." style="width:100%" oninput="syncCiudadesVuelo()"></td>
+    <td><input type="number" value="${precio}" min="0" step="1" style="width:100%;text-align:center" oninput="syncCiudadesVuelo()"></td>
+    <td><input type="number" value="${salario}" min="0" step="500" style="width:100%;text-align:center" oninput="syncCiudadesVuelo()"></td>
+    <td><button class="btn-del" onclick="this.closest('tr').remove();syncCiudadesVuelo();renderCostes()">✕</button></td>`;
+  tbody.appendChild(tr);
+  syncCiudadesVuelo();
+}
+
+function syncCiudadesVuelo(){
+  ciudadesVuelo = [];
+  v('tbody-vuelos').querySelectorAll('tr').forEach(r=>{
+    const ins = r.querySelectorAll('input');
+    const ciudad = ins[0].value.trim();
+    const precio = parseFloat(ins[1].value)||0;
+    const salario = parseFloat(ins[2].value)||0;
+    if(ciudad) ciudadesVuelo.push({ciudad, precio, salario});
+  });
+  updateCostesConfig();
+  if(planDays.length) renderCostes();
+}
+
+function updateCostesConfig(){
+  const dietas = vi('coste-dietas');
+  const aloj = vi('coste-alojamiento');
+  const nCiudades = ciudadesVuelo.length;
+  v('badge-costes-config').textContent = `${dietas}€ dietas · ${aloj}€ aloj · ${nCiudades} ciudad${nCiudades!==1?'es':''}`;
+}
+
+function fmt(n){ return n.toLocaleString('es',{minimumFractionDigits:0,maximumFractionDigits:0})+'€'; }
+
+function renderCostes(){
+  if(!planDays.length){
+    v('costes-output').innerHTML = '<div class="no-data-msg" style="border:1px solid var(--border);border-radius:10px;background:var(--white)">Genera el planning primero.</div>';
+    return;
+  }
+
+  const dietas = vi('coste-dietas');
+  const bonus = 25; // fijo
+  const aloj = vi('coste-alojamiento');
+
+  // Agrupar planDays por semana
+  const weeksMap = {};
+  planDays.forEach(d=>{ if(!weeksMap[d.semana]) weeksMap[d.semana]=[]; weeksMap[d.semana].push(d); });
+  const semanas = Object.keys(weeksMap).map(Number).sort((a,b)=>a-b);
+
+  // Inicializar costesSemanales para semanas nuevas
+  semanas.forEach(s=>{
+    if(!costesSemanales[s]) costesSemanales[s] = {};
+    ciudadesVuelo.forEach(c=>{ if(costesSemanales[s][c.ciudad]===undefined) costesSemanales[s][c.ciudad]=0; });
+  });
+
+  let totalVuelos=0, totalDietas=0, totalBonus=0, totalAloj=0, totalSalarios=0;
+
+  let html = '';
+
+  semanas.forEach(sem=>{
+    const days = weeksMap[sem];
+    // Días laborables con actividad esta semana
+    const diasActividad = days.filter(d=>d.activities&&d.activities.length>0).length;
+    // Personas únicas por bloque (máx diario de cada tipo)
+    let maxPd=0, maxPm=0, maxPDesp=0;
+    days.forEach(d=>{
+      if(!d.activities) return;
+      d.activities.forEach(a=>{
+        if(a.type==='descarga') maxPd = Math.max(maxPd, a.personas||0);
+        if(a.type==='montaje') maxPm = Math.max(maxPm, a.personas||0);
+        if(a.type==='despliegue') maxPDesp = Math.max(maxPDesp, a.personas||0);
+      });
+    });
+    const personasTotales = maxPd + maxPm + maxPDesp;
+
+    // Costes fijos de la semana
+    const cDietas = personasTotales * diasActividad * dietas;
+    const cBonus = personasTotales * diasActividad * bonus;
+    const cAloj = personasTotales * diasActividad * aloj;
+
+    // Vuelos y salarios esta semana
+    let cVuelos = 0, cSalarios = 0;
+    const regSem = costesSemanales[sem] || {};
+    ciudadesVuelo.forEach(c=>{
+      const nPersonas = regSem[c.ciudad]||0;
+      cVuelos += nPersonas * c.precio;
+      // Coste salarial prorateado: salario_anual / 220 * días_activos
+      cSalarios += nPersonas * (c.salario/220) * diasActividad;
+    });
+
+    const totalSem = cDietas + cBonus + cAloj + cVuelos + cSalarios;
+    totalVuelos += cVuelos; totalDietas += cDietas; totalBonus += cBonus; totalAloj += cAloj; totalSalarios += cSalarios;
+
+    const fechaIni = days[0]?.dateStr || '';
+    const fechaFin = days[days.length-1]?.dateStr || '';
+
+    html += `<div class="costes-semana">
+      <div class="costes-semana-header">
+        <span class="costes-semana-title">Semana ${sem} &nbsp;·&nbsp; ${fechaIni} – ${fechaFin} &nbsp;·&nbsp; ${diasActividad} días activos · ${personasTotales} personas</span>
+        <span class="costes-semana-total">${fmt(totalSem)}</span>
+      </div>
+      <table class="costes-table">
+        <thead><tr>
+          <th>Concepto</th><th style="width:140px">Cálculo</th><th style="width:110px;text-align:right">Importe</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>✈️ Vuelos</td>
+            <td style="color:var(--text-muted);font-size:12px">
+              ${ciudadesVuelo.length===0?'Sin ciudades configuradas':ciudadesVuelo.map(c=>`
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                  <span style="min-width:80px">${c.ciudad} (${fmt(c.precio)}/p)</span>
+                  <input type="number" min="0" value="${regSem[c.ciudad]||0}"
+                    style="width:55px;text-align:center;padding:3px 5px;font-size:12px;border:1px solid var(--border);border-radius:5px"
+                    oninput="costesSemanales[${sem}]['${c.ciudad}']=parseFloat(this.value)||0;renderCostes()"
+                    placeholder="0"> personas
+                </div>`).join('')}
+            </td>
+            <td style="text-align:right;font-weight:600">${fmt(cVuelos)}</td>
+          </tr>
+          <tr><td>🍽️ Dietas</td>
+            <td style="color:var(--text-muted);font-size:12px">${personasTotales}p × ${diasActividad}d × ${dietas}€</td>
+            <td style="text-align:right;font-weight:600">${fmt(cDietas)}</td>
+          </tr>
+          <tr><td>🎒 Bonus desplazamiento</td>
+            <td style="color:var(--text-muted);font-size:12px">${personasTotales}p × ${diasActividad}d × ${bonus}€</td>
+            <td style="text-align:right;font-weight:600">${fmt(cBonus)}</td>
+          </tr>
+          <tr><td>🏨 Alojamiento</td>
+            <td style="color:var(--text-muted);font-size:12px">${personasTotales}p × ${diasActividad}noches × ${aloj}€</td>
+            <td style="text-align:right;font-weight:600">${fmt(cAloj)}</td>
+          </tr>
+          <tr><td>👤 Coste salarial</td>
+            <td style="color:var(--text-muted);font-size:12px">
+              ${ciudadesVuelo.filter(c=>(regSem[c.ciudad]||0)>0).length===0
+                ? '<span style="font-style:italic">Indica personas por ciudad en vuelos</span>'
+                : ciudadesVuelo.filter(c=>(regSem[c.ciudad]||0)>0).map(c=>`
+                  <div>${regSem[c.ciudad]||0}p × ${fmt(Math.round(c.salario/220))}/día (${c.ciudad})</div>`).join('')}
+            </td>
+            <td style="text-align:right;font-weight:600">${fmt(Math.round(cSalarios))}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+  });
+
+  const totalGeneral = totalVuelos + totalDietas + totalBonus + totalAloj + totalSalarios;
+  const costeBadge = fmt(totalGeneral);
+  document.getElementById('tabbadge-costes').textContent = costeBadge;
+
+  let summaryHtml = `<div class="costes-summary" style="grid-template-columns:repeat(5,1fr)">
+    <div class="costes-kpi"><div class="ck-label">💶 Coste total</div><div class="ck-val">${fmt(totalGeneral)}</div><div class="ck-sub">${semanas.length} semanas</div></div>
+    <div class="costes-kpi"><div class="ck-label">✈️ Vuelos</div><div class="ck-val">${fmt(totalVuelos)}</div><div class="ck-sub">${Math.round(totalVuelos/totalGeneral*100)||0}% del total</div></div>
+    <div class="costes-kpi"><div class="ck-label">🍽️ Dietas + Bonus</div><div class="ck-val">${fmt(totalDietas+totalBonus)}</div><div class="ck-sub">${Math.round((totalDietas+totalBonus)/totalGeneral*100)||0}% del total</div></div>
+    <div class="costes-kpi"><div class="ck-label">🏨 Alojamiento</div><div class="ck-val">${fmt(totalAloj)}</div><div class="ck-sub">${Math.round(totalAloj/totalGeneral*100)||0}% del total</div></div>
+    <div class="costes-kpi"><div class="ck-label">👤 Salarios</div><div class="ck-val">${fmt(Math.round(totalSalarios))}</div><div class="ck-sub">${Math.round(totalSalarios/totalGeneral*100)||0}% del total</div></div>
+  </div>`;
+
+  v('costes-output').innerHTML = summaryHtml + html;
 }
 
 // ─── GENERATE PLAN BASE ──────────────────────────────────────────────────────
@@ -1472,6 +1714,11 @@ addTaskMontaje('Instalación de cesta/cargador',10);
 addTaskMontaje('Inflado y revisión de neumáticos',8);
 addTaskMontaje('QC final y prueba de arranque',15);
 renderAdmin(); updateMetrics(); updateBadgeConfig(); updateBadges(); updateBadgesDespliegue();
+// Init ciudades vuelo por defecto
+ciudadesVuelo.forEach(c=>addCiudadVuelo(c.ciudad, c.precio));
+ciudadesVuelo = []; // se rellenarán desde syncCiudadesVuelo
+syncCiudadesVuelo();
+updateCostesConfig();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FIREBASE CONFIG — reemplaza estos valores con los tuyos de Firebase Console
@@ -1760,6 +2007,10 @@ function collectConfig(){
     }),
     // Admin
     adminItems: adminItems,
+    costeDietas: v('coste-dietas').value,
+    costeAlojamiento: v('coste-alojamiento').value,
+    ciudadesVuelo: ciudadesVuelo,
+    costesSemanales: costesSemanales,
   };
   return cfg;
 }
@@ -1802,11 +2053,21 @@ function restoreConfig(cfg){
     adminItems = cfg.adminItems;
     renderAdmin();
   }
+  if(cfg.costeDietas) v('coste-dietas').value = cfg.costeDietas;
+  if(cfg.costeAlojamiento) v('coste-alojamiento').value = cfg.costeAlojamiento;
+  if(cfg.ciudadesVuelo && cfg.ciudadesVuelo.length){
+    v('tbody-vuelos').innerHTML = '';
+    ciudadesVuelo = [];
+    cfg.ciudadesVuelo.forEach(c=>addCiudadVuelo(c.ciudad, c.precio, c.salario||0));
+    syncCiudadesVuelo();
+  }
+  if(cfg.costesSemanales) costesSemanales = cfg.costesSemanales;
   // Actualizar todos los badges y métricas
   calcContainers();
   updateBadgeConfig();
   updateBadges();
   updateBadgesDespliegue();
+  updateCostesConfig();
 }
 
 function pushConfig(){
@@ -1825,8 +2086,8 @@ function switchTab(name){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   document.getElementById('panel-'+name).classList.add('active');
-  // Redibujar gráficos al entrar en seguimiento (el canvas necesita ser visible)
   if(name==='seguimiento' && planDays.length) setTimeout(renderCharts, 60);
+  if(name==='costes') renderCostes();
 }
 
 function generateAndSwitch(){
