@@ -495,7 +495,12 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
           id="partner-name-mont-yego" oninput="updateBlockTeam('mont-yego')">
         <span id="team-pill-mont-yego" style="font-size:11px;padding:2px 10px;border-radius:10px;font-weight:700"></span>
       </div>
-      <div class="info-box" style="margin-bottom:12px">Tareas finales de montaje. Puedes configurar tareas diferentes por semana. El inicio viene dado por la primera semana activa seleccionada arriba.</div>
+      <div class="info-box" style="margin-bottom:12px">Tareas finales de montaje. Puedes configurar tareas diferentes por semana.</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px 14px;background:var(--yego-blue-light);border-radius:8px;border:1px solid rgba(14,165,233,0.3)">
+        <span style="font-size:13px;font-weight:600;color:var(--yego-blue)">📅 Inicio montaje Yego</span>
+        <input type="date" id="fecha-inicio-mont-yego" value="2026-09-28" style="width:160px;border-color:rgba(14,165,233,0.4)">
+        <span style="font-size:12px;color:var(--yego-blue)">Independiente de las semanas activas — Yego no empieza hasta esta fecha</span>
+      </div>
       <div class="form-grid" style="margin-bottom:12px">
         <div class="form-group"><label>Personas responsables</label><input type="number" id="personas-mont-yego" value="5" min="1" oninput="updateMetrics()"></div>
       </div>
@@ -525,15 +530,19 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
           id="partner-name-despliegue" oninput="updateBlockTeam('despliegue')">
         <span id="team-pill-despliegue" style="font-size:11px;padding:2px 10px;border-radius:10px;font-weight:700"></span>
       </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px 14px;background:var(--cyan-light);border-radius:8px;border:1px solid rgba(8,145,178,0.3)">
+        <span style="font-size:13px;font-weight:600;color:var(--cyan)">📅 Inicio despliegue</span>
+        <input type="date" id="fecha-inicio-despliegue" value="2026-09-28" style="width:160px;border-color:rgba(8,145,178,0.4)">
+        <span style="font-size:12px;color:var(--cyan)">Primera jornada de motos a calle</span>
+      </div>
       <div class="form-grid-3" style="margin-bottom:12px">
         <div class="form-group"><label>Motos desplegadas/día</label><input type="number" id="despliegue-motos-dia" value="36" min="1" oninput="updateMetrics()"></div>
         <div class="form-group"><label>Min./moto</label><input type="number" id="despliegue-min-moto" value="10" min="1" oninput="updateMetrics()"></div>
         <div class="form-group"><label>Personas despliegue</label><input type="number" id="despliegue-personas" value="2" min="1" oninput="updateMetrics()"></div>
       </div>
-      <div class="metric-row" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metric-row" style="grid-template-columns:repeat(2,1fr)">
         <div class="metric"><div class="metric-label">Min/día con <span id="m-p-desp">2</span>p</div><div class="metric-value" id="m-min-desp">–</div></div>
         <div class="metric"><div class="metric-label">Horas/día</div><div class="metric-value" id="m-h-desp">–</div></div>
-        <div class="metric"><div class="metric-label">Fecha inicio despliegue</label></div><input type="date" id="fecha-inicio-despliegue" value="2026-09-28" style="margin-top:4px"></div>
       </div>
     </div>
   </div>
@@ -1218,7 +1227,7 @@ function generatePlanning(){
     const minMotoDesp = vi('despliegue-min-moto') || 10;
     const fechaIniDescarga = v('fecha-inicio-descarga').value || '2026-09-22';
     const fechaIniMontLogtravi = v('fecha-inicio-mont-logtravi').value || '2026-09-22';
-    const fechaIniMontYego = semanasActivas.length > 0 ? semanasActivas[0] : '2026-09-28';
+    const fechaIniMontYego = v('fecha-inicio-mont-yego').value || '2026-09-28';
     const fechaIniDesp = v('fecha-inicio-despliegue').value || '2026-09-28';
 
     // Total min descarga por contenedor con personas
@@ -2198,6 +2207,7 @@ function collectConfig(){
     desplieguePersonas: v('despliegue-personas').value,
     fechaIniDescarga: v('fecha-inicio-descarga').value,
     fechaIniMontLogtravi: v('fecha-inicio-mont-logtravi').value,
+    fechaIniMontYego: v('fecha-inicio-mont-yego').value,
     fechaIniDesp: v('fecha-inicio-despliegue').value,
     blockTeams: {
       descarga: getBlockTeam('descarga'),
@@ -2239,6 +2249,7 @@ function restoreConfig(cfg){
   if(cfg.desplieguePersonas) v('despliegue-personas').value=cfg.desplieguePersonas;
   if(cfg.fechaIniDescarga) v('fecha-inicio-descarga').value=cfg.fechaIniDescarga;
   if(cfg.fechaIniMontLogtravi) v('fecha-inicio-mont-logtravi').value=cfg.fechaIniMontLogtravi;
+  if(cfg.fechaIniMontYego) v('fecha-inicio-mont-yego').value=cfg.fechaIniMontYego;
   if(cfg.fechaIniDesp) v('fecha-inicio-despliegue').value=cfg.fechaIniDesp;
   if(cfg.blockTeams){
     BLOCKS.forEach(b=>{
