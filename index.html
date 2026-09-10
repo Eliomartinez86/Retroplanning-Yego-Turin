@@ -531,6 +531,11 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
         <input type="date" id="fecha-inicio-despliegue" value="2026-09-28" style="width:160px;border-color:rgba(8,145,178,0.4)">
         <span style="font-size:12px;color:var(--cyan)">Primera jornada de motos a calle</span>
       </div>
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Semanas con despliegue activo</div>
+        <div id="semanas-despliegue-grid" class="semanas-grid"></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Si no hay semanas seleccionadas, se despliega todas las semanas disponibles.</div>
+      </div>
       <div class="form-grid-3" style="margin-bottom:12px">
         <div class="form-group"><label>Motos desplegadas/día</label><input type="number" id="despliegue-motos-dia" value="36" min="1" oninput="updateMetrics()"></div>
         <div class="form-group"><label>Min./moto</label><input type="number" id="despliegue-min-moto" value="10" min="1" oninput="updateMetrics()"></div>
@@ -728,6 +733,42 @@ function formatDateLong(iso){
 }
 const DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
+let semanasDespliegue = []; // semanas activas de despliegue (vacío = todas)
+
+function renderSemanasDespliegueGrid(){
+  const grid = v('semanas-despliegue-grid');
+  if(!grid) return;
+  grid.innerHTML = '';
+  // Usar las mismas semanas disponibles que el planning
+  const fechas = barcos.map(b=>b.fechaLlegada).filter(Boolean).sort();
+  if(!fechas.length) return;
+  const start = mondayOfWeek(fechas[0]);
+  const weeks = [];
+  for(let i=0;i<10;i++){
+    const d = new Date(start+'T12:00:00');
+    d.setDate(d.getDate()+i*7);
+    weeks.push(d.toISOString().slice(0,10));
+  }
+  weeks.forEach(w=>{
+    const chip = document.createElement('div');
+    chip.className = 'semana-chip' + (semanasDespliegue.includes(w) ? ' active' : '');
+    chip.style.borderColor = semanasDespliegue.includes(w) ? 'var(--cyan)' : '';
+    chip.style.background = semanasDespliegue.includes(w) ? 'var(--cyan)' : '';
+    chip.textContent = 'Sem ' + formatDate(w);
+    chip.title = formatDateLong(w);
+    chip.onclick = () => {
+      const idx = semanasDespliegue.indexOf(w);
+      if(idx>=0) semanasDespliegue.splice(idx,1);
+      else semanasDespliegue.push(w);
+      semanasDespliegue.sort();
+      chip.classList.toggle('active', semanasDespliegue.includes(w));
+      chip.style.borderColor = semanasDespliegue.includes(w) ? 'var(--cyan)' : '';
+      chip.style.background = semanasDespliegue.includes(w) ? 'var(--cyan)' : '';
+    };
+    grid.appendChild(chip);
+  });
+}
+
 // ─── BLOCK TEAM CONFIG ────────────────────────────────────────────────────────
 const BLOCKS = ['descarga','mont-logtravi','mont-yego','despliegue'];
 
@@ -885,6 +926,7 @@ function renderSemanasGrid(weeks, prevActivas){
     grid.appendChild(chip);
   });
   updateBadgeSemanas();
+  renderSemanasDespliegueGrid();
 }
 function updateBadgeSemanas(){
   v('badge-semanas').textContent = semanasActivas.length + ' semana' + (semanasActivas.length!==1?'s':'') + ' activa' + (semanasActivas.length!==1?'s':'');
@@ -1032,6 +1074,7 @@ function renderYegoWeekTasks(){
       const prev = yegoWeekTasks[yegoWeekTasks.length-1];
       yegoWeekTasks.push({
         semana: sem,
+        personas: prev ? prev.personas : (vi('personas-mont-yego')||5),
         tasks: prev ? JSON.parse(JSON.stringify(prev.tasks)) : [{nombre:'Instalación batería y electrónica',mins:8},{nombre:'Ajuste frenos y revisión mecánica',mins:10},{nombre:'QC final y prueba arranque',mins:5}]
       });
     }
@@ -1047,7 +1090,13 @@ function renderYegoWeekTasks(){
     div.innerHTML = `
       <div class="yego-week-header">
         <span class="yego-week-label">🗓 Semana ${formatDate(sem)} (${formatDateLong(sem)})</span>
-        ${si>0?`<button class="btn-add" style="margin-top:0;font-size:11px;padding:4px 10px" onclick="copyFromPrevWeek('${sem}')">↑ Copiar semana anterior</button>`:''}
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:11px;color:var(--text-muted);font-weight:600">👥 Personas:</label>
+          <input type="number" value="${wt.personas||vi('personas-mont-yego')||5}" min="1" max="20"
+            style="width:55px;padding:3px 6px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:6px"
+            oninput="getYegoWT('${sem}').personas=parseInt(this.value)||5;updateMetrics()">
+          ${si>0?`<button class="btn-add" style="margin-top:0;font-size:11px;padding:4px 10px" onclick="copyFromPrevWeek('${sem}')">↑ Copiar semana anterior</button>`:''}
+        </div>
       </div>
       <table class="tasks-table" style="margin-top:0">
         <thead><tr><th>Tarea</th><th style="width:120px">Min./moto</th><th style="width:100px" title="Motos de semanas anteriores que necesitan esta tarea">Motos pendientes</th><th style="width:38px"></th></tr></thead>
@@ -1307,18 +1356,18 @@ function generatePlanning(){
       const yegoActiva = semanasActivas.includes(semLunes);
       // Tareas Yego para esta semana
       const yegoWT = yegoWeekTasks.find(w=>w.semana===semLunes);
+      // Personas Yego esta semana (configurable por semana)
+      const pMYsem = yegoWT && yegoWT.personas ? yegoWT.personas : pMY;
       const totalMinMY = yegoWT ? yegoWT.tasks.reduce((a,t)=>a+t.mins,0) : 0;
-      const minMYmoto = pMY>0 ? totalMinMY/pMY : totalMinMY;
+      const minMYmoto = pMYsem>0 ? totalMinMY/pMYsem : totalMinMY;
       const maxMotoYegoDia = totalMinMY>0 ? Math.floor(jornadaH/(minMYmoto/60)) : 0;
 
-      // Calcular horas extra por motos pendientes de semanas anteriores
-      // (tareas nuevas esta semana que hay que aplicar retroactivamente)
+      // Horas extra por motos pendientes de semanas anteriores
       let horasExtraPendientes = 0;
       if(yegoWT){
         yegoWT.tasks.forEach(t=>{
           if(t.motosPendientes && t.motosPendientes > 0){
-            // Min extra = motos pendientes × min de esa tarea / personas
-            horasExtraPendientes += (t.motosPendientes * t.mins / pMY) / 60;
+            horasExtraPendientes += (t.motosPendientes * t.mins / pMYsem) / 60;
           }
         });
       }
@@ -1415,15 +1464,16 @@ function generatePlanning(){
 
           activities.push({
             type:'mont-yego', team:getBlockTeam('mont-yego'), teamLabel:getBlockLabel('mont-yego'),
-            planMotos: montYego, personas: pMY, horas: hMontY + (esPrimerDiaYegoEnSemana?horasExtraPendientes:0),
+            planMotos: montYego, personas: pMYsem, horas: hMontY + (esPrimerDiaYegoEnSemana?horasExtraPendientes:0),
             acum: motosMontadasYego, total: contDescargadosTotal * mpc(),
             tareas: yegoWT ? yegoWT.tasks : [],
             pendientesInfo, horasExtraPendientes: esPrimerDiaYegoEnSemana ? horasExtraPendientes : 0
           });
         }
 
-        // DESPLIEGUE — si hay motos montadas por Yego y la fecha es correcta
-        if(dateISO >= fechaIniDesp && motosMontadasYego > motosEnCalle){
+        // DESPLIEGUE — respetar semanas activas de despliegue
+        const despActivo = semanasDespliegue.length===0 || semanasDespliegue.includes(semLunes);
+        if(dateISO >= fechaIniDesp && despActivo && motosMontadasYego > motosEnCalle){
           const hPorMotoDesp = pDesp>0 ? (minMotoDesp/pDesp)/60 : minMotoDesp/60;
           const maxDespJornada = hPorMotoDesp>0 ? Math.floor(jornadaH/hPorMotoDesp) : motosDesp;
           const despHoy = Math.min(motosDesp, motosMontadasYego-motosEnCalle, Math.max(1,maxDespJornada));
@@ -1571,7 +1621,8 @@ function renderPlanning(){
       const hasActividad = day.activities && day.activities.length > 0;
 
       let cardClass = 'day-card';
-      if(hasDesvio) cardClass += ' has-desvio';
+      if(day._esNuevo || day._tieneReprog) cardClass += ' reprogramado';
+      else if(hasDesvio) cardClass += ' has-desvio';
       else if(hasReg && !hasDesvio) cardClass += ' completado';
 
       html += `<div class="${cardClass}">
@@ -1579,7 +1630,7 @@ function renderPlanning(){
           <div class="day-name">
             <span>${day.dayName}</span>
             <span class="day-date">${day.dateStr}</span>
-            ${hasReg ? `<span class="day-status-pill ${hasDesvio?'pill-desvio':'pill-ok'}">${hasDesvio?'Desviación':'OK'}</span>` : (hasActividad?'<span class="day-status-pill pill-pendiente">Pendiente</span>':'')}
+            ${day._esNuevo ? '<span class="day-status-pill pill-reprog">↺ Reprog.</span>' : hasReg ? `<span class="day-status-pill ${hasDesvio?'pill-desvio':'pill-ok'}">${hasDesvio?'Desviación':'OK'}</span>` : (hasActividad?'<span class="day-status-pill pill-pendiente">Pendiente</span>':'')}
           </div>
           <div class="day-tasks">`;
 
@@ -1666,6 +1717,43 @@ function renderPlanning(){
   output.innerHTML = html;
 }
 
+// ─── REPROGRAMACIÓN ──────────────────────────────────────────────────────────
+function injectReprogramado(srcDayId, fecha, cant, srcActivities){
+  // Buscar si ya existe un día reprogramado para esa fecha
+  let target = planDays.find(d=>d.id===fecha && d._reprogramadoDe===srcDayId);
+  if(target){
+    // Actualizar cantidad
+    target.activities.forEach(a=>{ a.planMotos=cant; a.planCont=cant; });
+    return;
+  }
+  // Buscar si ya existe el día en planDays (día normal)
+  const existente = planDays.find(d=>d.id===fecha);
+  if(existente){
+    // Añadir actividades reprogramadas a ese día
+    srcActivities.forEach(a=>{
+      const yaExiste = existente.activities.find(x=>x.type===a.type && x._reprog);
+      if(!yaExiste){
+        existente.activities.push({...a, planMotos:cant, planCont:cant, _reprog:true, _reprogDe:srcDayId});
+      }
+    });
+    existente._tieneReprog = true;
+  } else {
+    // Crear día nuevo
+    const d = new Date(fecha+'T12:00:00');
+    const dayName = DAY_NAMES[d.getDay()];
+    const newDay = {
+      id: fecha, dayName, dateStr: formatDate(fecha), dateISO: fecha,
+      semana: mondayOfWeek(fecha), semIdx: -1,
+      _reprogramadoDe: srcDayId, _esNuevo: true,
+      activities: srcActivities.map(a=>({...a, planMotos:cant, planCont:cant, _reprog:true, _reprogDe:srcDayId}))
+    };
+    // Insertar en orden cronológico
+    const insertIdx = planDays.findIndex(d=>d.id > fecha);
+    if(insertIdx>=0) planDays.splice(insertIdx,0,newDay);
+    else planDays.push(newDay);
+  }
+}
+
 // ─── MODAL REGISTRO ───────────────────────────────────────────────────────────
 function openModal(dayId){
   const day = planDays.find(d=>d.id===dayId);
@@ -1715,6 +1803,25 @@ function openModal(dayId){
   }
 
   fields += `<div class="modal-row"><label>Nota</label><input type="text" id="reg-nota" value="${reg.nota||''}" placeholder="Observaciones..." style="width:100%"></div>`;
+
+  // Sección reprogramación — solo si hay desviación posible
+  if(day.activities.length > 0){
+    fields += `<div class="modal-row" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px;background:rgba(216,138,239,0.06);border-radius:8px;padding:10px">
+      <label style="font-size:12px;font-weight:700;color:#9B1FA8;text-transform:uppercase;letter-spacing:0.04em">↺ Reprogramar volumen no completado</label>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;margin-bottom:8px">Si no se cumple el plan, indica cuándo y cuánto se recuperará.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Fecha de recuperación</div>
+          <input type="date" id="reg-reprog-fecha" value="${reg.reprog_fecha||''}" style="width:100%">
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Unidades a recuperar</div>
+          <input type="number" id="reg-reprog-cant" value="${reg.reprog_cant||''}" min="0" placeholder="0" style="width:100%">
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px">💡 Las unidades reprogramadas se añadirán como actividad extra en la fecha indicada.</div>
+    </div>`;
+  }
   v('modal-fields').innerHTML = fields;
   v('modal-overlay').style.display = 'flex';
 }
@@ -1745,6 +1852,19 @@ function saveRegistro(){
     const teamSlots = document.querySelectorAll('[id^="reg-staff-"]:not(#reg-staff-coord)');
     if(teamSlots.length){
       reg.staff_team = Array.from(teamSlots).map(i=>i.value.trim()).filter(Boolean);
+    }
+
+    // Guardar reprogramación
+    const reprogFecha = v('reg-reprog-fecha') ? v('reg-reprog-fecha').value : '';
+    const reprogCant = v('reg-reprog-cant') ? parseFloat(v('reg-reprog-cant').value)||0 : 0;
+    if(reprogFecha && reprogCant > 0){
+      reg.reprog_fecha = reprogFecha;
+      reg.reprog_cant = reprogCant;
+      // Inyectar día reprogramado en planDays si no existe ya
+      injectReprogramado(dayId, reprogFecha, reprogCant, day.activities);
+    } else {
+      reg.reprog_fecha = '';
+      reg.reprog_cant = 0;
     }
 
     reg._hasDesvio = hasDesvio;
@@ -2150,29 +2270,39 @@ function exportPlanning(){
     </div>`;
   }
 
-  const fechaDesc = v('fecha-inicio-descarga').value;
   const fechaML = v('fecha-inicio-mont-logtravi').value;
   const fechaDesp = v('fecha-inicio-despliegue').value;
   const primeraYego = semanasActivas.length>0 ? formatDateLong(semanasActivas[0]) : '–';
 
+  // Calcular métricas para fichas
+  const totalMinDescExp = tareasDescarga.reduce((a,t)=>a+t.cant*t.mins,0);
+  const hContDescExp = pDesc>0 ? (totalMinDescExp/pDesc)/60 : 0;
+  const firstLTExp = logtravWeekTasks[0];
+  const totalMinMLExp = firstLTExp ? firstLTExp.tasks.reduce((a,t)=>a+t.mins,0) : 0;
+  const minMLmotoExp = pML>0 ? totalMinMLExp/pML : totalMinMLExp;
+  const hLoteMLExp = pML>0 ? (mpc()*totalMinMLExp/pML)/60 : 0;
+  // Fechas de descarga por barco (primera disponible)
+  const fechaDescExp = barcos.length>0 ? formatDateLong(barcos[0].fechaIniDescarga||barcos[0].fechaLlegada) : '–';
+
   const fichasHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:1.5rem">
-    ${fichaHtml('#D97706','📦 Descarga','Logtravi',pDesc,formatDateLong(fechaDesc),
+    ${fichaHtml('#D97706','📦 Descarga',getBlockLabel('descarga'),pDesc,fechaDescExp,
       tareasDescarga.map(t=>({nombre:t.nombre,val:`${t.cant}u · ${t.mins}min`})),
-      [{label:'Min/cont. ('+pDesc+'p)',val:Math.round(totalMinDesc/pDesc)+'min'},{label:'Horas/contenedor',val:hContDesc.toFixed(1)+'h'},{label:'Cap. máx/día',val:vi('cap-descarga-dia')+' cont.'},{label:'Total contenedores',val:totalCont+' cont.'}]
+      [{label:'Min/cont. ('+pDesc+'p)',val:Math.round(totalMinDescExp/pDesc)+'min'},{label:'Horas/contenedor',val:hContDescExp.toFixed(1)+'h'},{label:'Cap. máx/día',val:vi('cap-descarga-dia')+' cont.'},{label:'Total contenedores',val:totalCont+' cont.'}]
     )}
-    ${fichaHtml('#6366F1','🔩 Montaje Logtravi','Logtravi',pML,formatDateLong(fechaML),
+    ${fichaHtml('#6366F1','🔩 Montaje '+getBlockLabel('mont-logtravi'),getBlockLabel('mont-logtravi'),pML,formatDateLong(fechaML),
       (logtravWeekTasks[0]?logtravWeekTasks[0].tasks:[]).map(t=>({nombre:t.nombre,val:t.mins+'min/moto'})),
-      [{label:'Min/moto ('+pML+'p)',val:Math.round(minMLmoto)+'min'},{label:'Horas/lote '+mpc()+'motos',val:hLoteML.toFixed(1)+'h'},{label:'Jornada máx',val:jornadaH+'h'},{label:'Motos/día estimadas',val:Math.floor(jornadaH/(minMLmoto/60))+' motos'}]
+      [{label:'Min/moto ('+pML+'p)',val:Math.round(minMLmotoExp)+'min'},{label:'Horas/lote '+mpc()+' motos',val:hLoteMLExp.toFixed(1)+'h'},{label:'Jornada máx',val:jornadaH+'h'},{label:'Motos/día estimadas',val:minMLmotoExp>0?Math.floor(jornadaH/(minMLmotoExp/60))+' motos':'–'}]
     )}
-    ${fichaHtml('#0891B2','🔧 Montaje Yego','Yego',pMY,primeraYego,
+    ${fichaHtml('#0891B2','🔧 Montaje '+getBlockLabel('mont-yego'),getBlockLabel('mont-yego'),pMY,primeraYego,
       (yegoWeekTasks[0]?yegoWeekTasks[0].tasks:[]).map(t=>({nombre:t.nombre,val:t.mins+'min/moto'})),
       (()=>{
         const totalMinMY0 = yegoWeekTasks[0]?yegoWeekTasks[0].tasks.reduce((a,t)=>a+t.mins,0):0;
-        const minMYmoto = pMY>0?totalMinMY0/pMY:totalMinMY0;
-        return [{label:'Min/moto ('+pMY+'p)',val:Math.round(minMYmoto)+'min'},{label:'Motos/día estimadas',val:Math.floor(jornadaH/(minMYmoto/60))+' motos'},{label:'Semanas activas',val:semanasActivas.length+' sem'},{label:'Total motos',val:totalMotos+' motos'}];
+        const pMY0 = yegoWeekTasks[0]&&yegoWeekTasks[0].personas ? yegoWeekTasks[0].personas : pMY;
+        const minMYmoto0 = pMY0>0?totalMinMY0/pMY0:totalMinMY0;
+        return [{label:'Min/moto ('+pMY0+'p)',val:Math.round(minMYmoto0)+'min'},{label:'Motos/día estimadas',val:minMYmoto0>0?Math.floor(jornadaH/(minMYmoto0/60))+' motos':'–'},{label:'Semanas activas',val:semanasActivas.length+' sem'},{label:'Total motos',val:totalMotos+' motos'}];
       })()
     )}
-    ${fichaHtml('#059669','🛵 Despliegue','Yego',pDesp,formatDateLong(fechaDesp),
+    ${fichaHtml('#059669','🛵 Despliegue',getBlockLabel('despliegue'),pDesp,formatDateLong(fechaDesp),
       [{nombre:'Moto a posición GPS',val:vi('despliegue-min-moto')+'min/moto'},{nombre:'Check app + activación',val:'incluido'}],
       [{label:'Motos/día',val:vi('despliegue-motos-dia')+' motos'},{label:'Min/día ('+pDesp+'p)',val:Math.round(vi('despliegue-motos-dia')*vi('despliegue-min-moto')/pDesp)+'min'},{label:'Horas/día',val:(vi('despliegue-motos-dia')*vi('despliegue-min-moto')/pDesp/60).toFixed(1)+'h'},{label:'Total motos',val:totalMotos+' motos'}]
     )}
@@ -2284,6 +2414,7 @@ function collectConfig(){
     horasJornada: v('horas-jornada').value,
     barcos: barcos,
     semanasActivas: semanasActivas,
+    semanasDespliegue: semanasDespliegue,
     tareasDescarga: tareasDescarga,
     personasDescarga: v('personas-descarga').value,
     capDescargaDia: v('cap-descarga-dia').value,
@@ -2335,6 +2466,7 @@ function restoreConfig(cfg){
   if(cfg.horasJornada) v('horas-jornada').value=cfg.horasJornada;
   if(cfg.barcos && cfg.barcos.length){ barcos=toArray(cfg.barcos).map(b=>({...b})); renderBarcos(); }
   if(cfg.semanasActivas){ semanasActivas=toArray(cfg.semanasActivas); updateSemanasFromBarcos(); }
+  if(cfg.semanasDespliegue){ semanasDespliegue=toArray(cfg.semanasDespliegue); renderSemanasDespliegueGrid(); }
   if(cfg.tareasDescarga){ tareasDescarga=toArray(cfg.tareasDescarga); renderTareasDescarga(); }
   if(cfg.personasDescarga) v('personas-descarga').value=cfg.personasDescarga;
   if(cfg.capDescargaDia) v('cap-descarga-dia').value=cfg.capDescargaDia;
@@ -2497,6 +2629,7 @@ function applyDefaults(){
   addBarco('Barco 1','2026-09-21',4,'2026-09-24');
   addBarco('Barco 2','2026-10-12',3,'2026-10-15');
   semanasActivas=['2026-09-28','2026-10-05','2026-10-19'];
+  semanasDespliegue=['2026-09-28','2026-10-05','2026-10-19'];
   updateSemanasFromBarcos();
   addTaskDescarga('Descarga de motos (manual/transpaleta)',72,3);
   addTaskDescarga('Control de inventario',72,2);
