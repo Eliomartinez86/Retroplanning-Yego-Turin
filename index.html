@@ -415,11 +415,7 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
           id="partner-name-descarga" oninput="updateBlockTeam('descarga')">
         <span id="team-pill-descarga" style="font-size:11px;padding:2px 10px;border-radius:10px;font-weight:700"></span>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px 14px;background:var(--orange-light);border-radius:8px;border:1px solid #F5D08A">
-        <span style="font-size:13px;font-weight:600;color:#C47E0D">📅 Inicio real de descarga</span>
-        <input type="date" id="fecha-inicio-descarga" value="2026-09-22" style="width:160px;border-color:#F5D08A">
-        <span style="font-size:12px;color:#C47E0D">Independiente de la llegada del barco (aduanas, logística...)</span>
-      </div>
+      <div class="info-box" style="margin-bottom:12px">La fecha de inicio de descarga se configura por barco en el bloque de Barcos y contenedores.</div>
       <div class="form-grid" style="margin-bottom:12px">
         <div class="form-group"><label>Personas responsables</label><input type="number" id="personas-descarga" value="6" min="1" oninput="updateMetrics()"></div>
         <div class="form-group"><label>Contenedores por día</label><input type="number" id="cap-descarga-dia" value="2" min="1" oninput="updateMetrics()"></div>
@@ -810,8 +806,14 @@ function generateAndSwitch(){
 }
 
 // ─── BARCOS ──────────────────────────────────────────────────────────────────
-function addBarco(nombre='', fechaLlegada='2026-09-21', nCont=4){
-  barcos.push({nombre, fechaLlegada, nCont});
+function addBarco(nombre='', fechaLlegada='2026-09-21', nCont=4, fechaIniDescarga=''){
+  // Si no se especifica fecha de inicio de descarga, usar el día siguiente a la llegada
+  if(!fechaIniDescarga){
+    const d = new Date(fechaLlegada+'T12:00:00');
+    d.setDate(d.getDate()+1);
+    fechaIniDescarga = d.toISOString().slice(0,10);
+  }
+  barcos.push({nombre, fechaLlegada, nCont, fechaIniDescarga});
   renderBarcos();
 }
 function renderBarcos(){
@@ -825,11 +827,13 @@ function renderBarcos(){
         <span class="barco-label">🚢 Barco ${i+1}</span>
         <button class="btn-del" onclick="removeBarco(${i})">✕</button>
       </div>
-      <div class="form-grid-3">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
         <div class="form-group"><label>Nombre</label>
           <input type="text" value="${b.nombre}" placeholder="Ej: Barco 1" oninput="barcos[${i}].nombre=this.value;updateSemanasFromBarcos()"></div>
-        <div class="form-group"><label>Fecha llegada</label>
+        <div class="form-group"><label>📅 Fecha llegada (informativa)</label>
           <input type="date" value="${b.fechaLlegada}" oninput="barcos[${i}].fechaLlegada=this.value;updateSemanasFromBarcos()"></div>
+        <div class="form-group"><label>📦 Inicio descarga (real)</label>
+          <input type="date" value="${b.fechaIniDescarga||b.fechaLlegada}" style="border-color:rgba(217,119,6,0.5)" oninput="barcos[${i}].fechaIniDescarga=this.value"></div>
         <div class="form-group"><label>N.º contenedores</label>
           <input type="number" value="${b.nCont}" min="1" oninput="barcos[${i}].nCont=parseInt(this.value)||1;updateMetrics()"></div>
       </div>`;
@@ -1237,10 +1241,17 @@ function generatePlanning(){
     const pDesp = vi('despliegue-personas') || 2;
     const motosDesp = vi('despliegue-motos-dia') || 36;
     const minMotoDesp = vi('despliegue-min-moto') || 10;
-    const fechaIniDescarga = v('fecha-inicio-descarga').value || '2026-09-22';
     const fechaIniMontLogtravi = v('fecha-inicio-mont-logtravi').value || '2026-09-22';
     const fechaIniMontYego = v('fecha-inicio-mont-yego').value || '2026-09-28';
     const fechaIniDesp = v('fecha-inicio-despliegue').value || '2026-09-28';
+
+    // Contenedores disponibles por fecha: {fechaISO: nCont}
+    // Cada barco aporta sus contenedores desde su propia fecha de inicio de descarga
+    const contDisponiblesPorFecha = {};
+    barcos.forEach(b=>{
+      const fecha = b.fechaIniDescarga || b.fechaLlegada;
+      contDisponiblesPorFecha[fecha] = (contDisponiblesPorFecha[fecha]||0) + b.nCont;
+    });
 
     // Total min descarga por contenedor con personas
     const totalMinDesc = tareasDescarga.reduce((a,t)=>a+t.cant*t.mins,0);
@@ -1255,6 +1266,9 @@ function generatePlanning(){
       alert('Configura al menos un barco y selecciona semanas activas.');
       return;
     }
+
+    // Total contenedores de todos los barcos
+    const contDescargadosTotal = barcos.reduce((a,b)=>a+b.nCont,0);
 
     // Estado acumulado
     let contPendDescarga = barcos.reduce((a,b)=>a+b.nCont,0);
@@ -1278,7 +1292,7 @@ function generatePlanning(){
       ...semanasActivas
     ])].sort();
 
-    let contDescargadosTotal = 0;
+    let contDescargadosAcum = 0; // acumulado por semana según llegadas
 
     // Generar días por cada semana activa
     todasLasSemanas.forEach((semLunes, semIdx)=>{
@@ -1287,7 +1301,7 @@ function generatePlanning(){
       const llegaEstasSemana = llegadasPorSemana[semLunes] || 0;
 
       // Acumular contenedores disponibles para descarga
-      contDescargadosTotal += llegaEstasSemana; // total que se pueden descargar ya
+      contDescargadosAcum += llegaEstasSemana; // total que se pueden descargar ya
 
       // ¿Yego trabaja esta semana?
       const yegoActiva = semanasActivas.includes(semLunes);
@@ -1333,9 +1347,17 @@ function generatePlanning(){
         const dayName = DAY_NAMES[fecha.getDay()];
         const activities = [];
 
-        // DESCARGA (Logtravi) — solo desde su fecha de inicio
-        const contPendDesc = contDescargadosTotal - (planDays.filter(pd=>pd.activities.some(a=>a.type==='descarga')).reduce((acc,pd)=>acc+pd.activities.filter(a=>a.type==='descarga').reduce((a2,a)=>a2+a.planCont,0),0));
-        if(dateISO >= fechaIniDescarga && contPendDesc > 0){
+      // Contenedores disponibles hasta este día (acumulado por fecha de inicio de descarga)
+      let contDisponiblesHoy = 0;
+      Object.entries(contDisponiblesPorFecha).forEach(([fecha, nCont])=>{
+        if(dateISO >= fecha) contDisponiblesHoy += nCont;
+      });
+
+      // DESCARGA — si hay contenedores disponibles para este día
+      const contDescargadosYa = planDays.filter(pd=>pd.activities.some(a=>a.type==='descarga'))
+        .reduce((acc,pd)=>acc+pd.activities.filter(a=>a.type==='descarga').reduce((a2,a)=>a2+a.planCont,0),0);
+      const contPendDesc = contDisponiblesHoy - contDescargadosYa;
+      if(contPendDesc > 0){
           const descHoy = Math.min(maxContDescDia, contPendDesc, Math.max(1,maxContDescDia));
           const motosDesc = descHoy * mpc();
           motosEnAlmacenLogtravi += motosDesc;
@@ -2272,7 +2294,6 @@ function collectConfig(){
     despliegueMotos: v('despliegue-motos-dia').value,
     despliegueMin: v('despliegue-min-moto').value,
     desplieguePersonas: v('despliegue-personas').value,
-    fechaIniDescarga: v('fecha-inicio-descarga').value,
     fechaIniMontLogtravi: v('fecha-inicio-mont-logtravi').value,
     fechaIniMontYego: v('fecha-inicio-mont-yego').value,
     fechaIniDesp: v('fecha-inicio-despliegue').value,
@@ -2324,7 +2345,6 @@ function restoreConfig(cfg){
   if(cfg.despliegueMotos) v('despliegue-motos-dia').value=cfg.despliegueMotos;
   if(cfg.despliegueMin) v('despliegue-min-moto').value=cfg.despliegueMin;
   if(cfg.desplieguePersonas) v('despliegue-personas').value=cfg.desplieguePersonas;
-  if(cfg.fechaIniDescarga) v('fecha-inicio-descarga').value=cfg.fechaIniDescarga;
   if(cfg.fechaIniMontLogtravi) v('fecha-inicio-mont-logtravi').value=cfg.fechaIniMontLogtravi;
   if(cfg.fechaIniMontYego) v('fecha-inicio-mont-yego').value=cfg.fechaIniMontYego;
   if(cfg.fechaIniDesp) v('fecha-inicio-despliegue').value=cfg.fechaIniDesp;
@@ -2474,8 +2494,8 @@ document.getElementById('pwd-input').addEventListener('keydown', e=>{ if(e.key==
 
 // ─── DEFAULTS (solo si Firebase no tiene config guardada) ────────────────────
 function applyDefaults(){
-  addBarco('Barco 1','2026-09-21',4);
-  addBarco('Barco 2','2026-10-12',3);
+  addBarco('Barco 1','2026-09-21',4,'2026-09-24');
+  addBarco('Barco 2','2026-10-12',3,'2026-10-15');
   semanasActivas=['2026-09-28','2026-10-05','2026-10-19'];
   updateSemanasFromBarcos();
   addTaskDescarga('Descarga de motos (manual/transpaleta)',72,3);
