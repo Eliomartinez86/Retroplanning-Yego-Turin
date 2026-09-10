@@ -967,7 +967,7 @@ function renderLogtravWeekTasks(){
         ${si>0?`<button class="btn-add" style="margin-top:0;font-size:11px;padding:4px 10px" onclick="copyLogtravFromPrevWeek('${sem}')">↑ Copiar semana anterior</button>`:''}
       </div>
       <table class="tasks-table" style="margin-top:0">
-        <thead><tr><th>Tarea</th><th style="width:160px">Min./moto</th><th style="width:38px"></th></tr></thead>
+        <thead><tr><th>Tarea</th><th style="width:120px">Min./moto</th><th style="width:100px" title="Motos de semanas anteriores que necesitan esta tarea">Motos pendientes</th><th style="width:38px"></th></tr></thead>
         <tbody id="tbody-lt-${sem}"></tbody>
       </table>
       <button class="btn-add" onclick="addLogtravTask('${sem}')">+ Añadir tarea</button>`;
@@ -988,6 +988,12 @@ function renderLogtravTasksForSemana(sem){
     tr.innerHTML = `
       <td><input type="text" value="${t.nombre}" placeholder="Pieza / operación" style="width:100%" oninput="getLogtravWT('${sem}').tasks[${i}].nombre=this.value"></td>
       <td><input type="number" value="${t.mins}" min="0" oninput="getLogtravWT('${sem}').tasks[${i}].mins=parseFloat(this.value)||0;updateMetrics()"></td>
+      <td style="text-align:center">
+        <input type="number" value="${t.motosPendientes||0}" min="0" style="width:70px;text-align:center;font-size:12px"
+          title="Motos de semanas anteriores que también necesitan esta tarea"
+          oninput="getLogtravWT('${sem}').tasks[${i}].motosPendientes=parseFloat(this.value)||0"
+          placeholder="0">
+      </td>
       <td><button class="btn-del" onclick="removeLogtravTask('${sem}',${i})">✕</button></td>`;
     tbody.appendChild(tr);
   });
@@ -1040,7 +1046,7 @@ function renderYegoWeekTasks(){
         ${si>0?`<button class="btn-add" style="margin-top:0;font-size:11px;padding:4px 10px" onclick="copyFromPrevWeek('${sem}')">↑ Copiar semana anterior</button>`:''}
       </div>
       <table class="tasks-table" style="margin-top:0">
-        <thead><tr><th>Tarea</th><th style="width:160px">Min./moto</th><th style="width:38px"></th></tr></thead>
+        <thead><tr><th>Tarea</th><th style="width:120px">Min./moto</th><th style="width:100px" title="Motos de semanas anteriores que necesitan esta tarea">Motos pendientes</th><th style="width:38px"></th></tr></thead>
         <tbody id="tbody-yego-${sem}"></tbody>
       </table>
       <button class="btn-add" onclick="addYegoTask('${sem}')">+ Añadir tarea</button>`;
@@ -1060,6 +1066,12 @@ function renderYegoTasksForSemana(sem){
     tr.innerHTML = `
       <td><input type="text" value="${t.nombre}" placeholder="Pieza / operación" style="width:100%" oninput="getYegoWT('${sem}').tasks[${i}].nombre=this.value"></td>
       <td><input type="number" value="${t.mins}" min="0" oninput="getYegoWT('${sem}').tasks[${i}].mins=parseFloat(this.value)||0;updateMetrics()"></td>
+      <td style="text-align:center">
+        <input type="number" value="${t.motosPendientes||0}" min="0" style="width:70px;text-align:center;font-size:12px"
+          title="Motos de semanas anteriores que también necesitan esta tarea"
+          oninput="getYegoWT('${sem}').tasks[${i}].motosPendientes=parseFloat(this.value)||0"
+          placeholder="0">
+      </td>
       <td><button class="btn-del" onclick="removeYegoTask('${sem}',${i})">✕</button></td>`;
     tbody.appendChild(tr);
   });
@@ -1285,11 +1297,33 @@ function generatePlanning(){
       const minMYmoto = pMY>0 ? totalMinMY/pMY : totalMinMY;
       const maxMotoYegoDia = totalMinMY>0 ? Math.floor(jornadaH/(minMYmoto/60)) : 0;
 
+      // Calcular horas extra por motos pendientes de semanas anteriores
+      // (tareas nuevas esta semana que hay que aplicar retroactivamente)
+      let horasExtraPendientes = 0;
+      if(yegoWT){
+        yegoWT.tasks.forEach(t=>{
+          if(t.motosPendientes && t.motosPendientes > 0){
+            // Min extra = motos pendientes × min de esa tarea / personas
+            horasExtraPendientes += (t.motosPendientes * t.mins / pMY) / 60;
+          }
+        });
+      }
+
       // Tareas Logtravi para esta semana (pueden variar)
       const logtravWT = logtravWeekTasks.find(w=>w.semana===semLunes) || logtravWeekTasks[0];
       const totalMinMLsem = logtravWT ? logtravWT.tasks.reduce((a,t)=>a+t.mins,0) : totalMinML;
       const minMLmotoSem = pML>0 ? totalMinMLsem/pML : totalMinMLsem;
       const maxMotosMLdiaSem = totalMinMLsem>0 ? Math.floor(jornadaH/(minMLmotoSem/60)) : 0;
+
+      // Horas extra por motos pendientes Logtravi
+      let horasExtraPendientesML = 0;
+      if(logtravWT){
+        logtravWT.tasks.forEach(t=>{
+          if(t.motosPendientes && t.motosPendientes > 0){
+            horasExtraPendientesML += (t.motosPendientes * t.mins / pML) / 60;
+          }
+        });
+      }
       const maxContDescDia = Math.min(capDescDia, Math.floor(hContDesc>0?jornadaH/hContDesc:capDescDia));
 
       for(let d=0;d<5;d++){
@@ -1316,28 +1350,53 @@ function generatePlanning(){
 
         // MONTAJE LOGTRAVI — solo desde su fecha de inicio
         if(dateISO >= fechaIniMontLogtravi && motosEnAlmacenLogtravi > 0 && maxMotosMLdiaSem > 0){
-          const montHoy = Math.min(motosEnAlmacenLogtravi, maxMotosMLdiaSem);
+          const esPrimerDiaMLenSemana = !semanaDias.some(dx=>dx.activities.some(a=>a.type==='mont-logtravi'));
+          const horasDispML = esPrimerDiaMLenSemana && horasExtraPendientesML > 0
+            ? Math.max(0, jornadaH - horasExtraPendientesML) : jornadaH;
+          const maxMotosMLefectivo = horasDispML > 0 && minMLmotoSem > 0
+            ? Math.floor(horasDispML / (minMLmotoSem/60)) : maxMotosMLdiaSem;
+          const montHoy = Math.min(motosEnAlmacenLogtravi, Math.max(1, maxMotosMLefectivo));
           const hMont = (montHoy * minMLmotoSem) / 60;
           motosEnAlmacenLogtravi -= montHoy;
           motosListasParaYego += montHoy;
+
+          const pendientesInfoML = esPrimerDiaMLenSemana && horasExtraPendientesML > 0
+            ? logtravWT.tasks.filter(t=>t.motosPendientes>0).map(t=>`${t.nombre}: ${t.motosPendientes} motos`) : [];
+
           activities.push({
             type:'mont-logtravi', team:getBlockTeam('mont-logtravi'), teamLabel:getBlockLabel('mont-logtravi'),
-            planMotos: montHoy, personas: pML, horas: hMont,
-            acum: motosListasParaYego, total: contDescargadosTotal * mpc()
+            planMotos: montHoy, personas: pML,
+            horas: hMont + (esPrimerDiaMLenSemana ? horasExtraPendientesML : 0),
+            acum: motosListasParaYego, total: contDescargadosTotal * mpc(),
+            pendientesInfo: pendientesInfoML,
+            horasExtraPendientes: esPrimerDiaMLenSemana ? horasExtraPendientesML : 0
           });
         }
 
         // MONTAJE YEGO — solo desde su fecha de inicio y semanas activas
         if(dateISO >= fechaIniMontYego && yegoActiva && motosListasParaYego > motosMontadasYego && maxMotoYegoDia > 0){
+          // Calcular jornada disponible: primer día de Yego en la semana resta horas extra pendientes
+          const esPrimerDiaYegoEnSemana = !semanaDias.some(dx=>dx.activities.some(a=>a.type==='mont-yego'));
+          const horasDisp = esPrimerDiaYegoEnSemana && horasExtraPendientes > 0
+            ? Math.max(0, jornadaH - horasExtraPendientes)
+            : jornadaH;
+          const maxMotosEfectivo = horasDisp > 0 && minMYmoto > 0 ? Math.floor(horasDisp / (minMYmoto/60)) : maxMotoYegoDia;
           const pendYego = motosListasParaYego - motosMontadasYego;
-          const montYego = Math.min(pendYego, maxMotoYegoDia);
+          const montYego = Math.min(pendYego, Math.max(1, maxMotosEfectivo));
           const hMontY = (montYego * minMYmoto) / 60;
           motosMontadasYego += montYego;
+
+          // Construir nota de pendientes si aplica
+          const pendientesInfo = esPrimerDiaYegoEnSemana && horasExtraPendientes > 0
+            ? yegoWT.tasks.filter(t=>t.motosPendientes>0).map(t=>`${t.nombre}: ${t.motosPendientes} motos`)
+            : [];
+
           activities.push({
             type:'mont-yego', team:getBlockTeam('mont-yego'), teamLabel:getBlockLabel('mont-yego'),
-            planMotos: montYego, personas: pMY, horas: hMontY,
+            planMotos: montYego, personas: pMY, horas: hMontY + (esPrimerDiaYegoEnSemana?horasExtraPendientes:0),
             acum: motosMontadasYego, total: contDescargadosTotal * mpc(),
-            tareas: yegoWT ? yegoWT.tasks : []
+            tareas: yegoWT ? yegoWT.tasks : [],
+            pendientesInfo, horasExtraPendientes: esPrimerDiaYegoEnSemana ? horasExtraPendientes : 0
           });
         }
 
@@ -1527,6 +1586,14 @@ function renderPlanning(){
             ${realStr}
           </div>`;
           // Tareas Yego detalle
+          if((a.type==='mont-yego'||a.type==='mont-logtravi') && a.pendientesInfo && a.pendientesInfo.length){
+            const color = a.type==='mont-logtravi' ? '#6366F1' : '#0891B2';
+            const bgColor = a.type==='mont-logtravi' ? '#EEF2FF' : '#E0F2FE';
+            html += `<div style="margin-left:10px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+              <span style="font-size:11px;color:#B45309;font-weight:600">⏳ Pendientes semanas anteriores (${a.horasExtraPendientes.toFixed(1)}h extra):</span>`;
+            a.pendientesInfo.forEach(p=>{ html+=`<span style="font-size:11px;background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:8px;border:1px solid #F59E0B">${p}</span>`; });
+            html += `</div>`;
+          }
           if(a.type==='mont-yego' && a.tareas && a.tareas.length){
             html += `<div style="margin-left:10px;display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">`;
             a.tareas.forEach(t=>{ html += `<span style="font-size:11px;background:var(--yego-blue-light);color:var(--yego-blue);padding:1px 7px;border-radius:8px">${t.nombre} ${t.mins}min</span>`; });
@@ -2231,6 +2298,16 @@ function collectConfig(){
 
 function restoreConfig(cfg){
   if(!cfg) return;
+  // Limpiar estado actual antes de restaurar para evitar duplicados
+  barcos=[];
+  tareasDescarga=[];
+  logtravWeekTasks=[];
+  yegoWeekTasks=[];
+  adminTasks=[];
+  ciudadesVuelo=[];
+  v('barcos-container').innerHTML='';
+  v('tbody-descarga').innerHTML='';
+  v('tbody-vuelos').innerHTML='';
   if(cfg.ciudad) v('ciudad').value=cfg.ciudad;
   if(cfg.fechaInicio) v('fecha-inicio').value=cfg.fechaInicio;
   if(cfg.motosPorCont) v('motos-por-cont').value=cfg.motosPorCont;
@@ -2314,7 +2391,12 @@ async function loadAllAndSubscribe(){
   setSyncStatus('warn','Cargando datos...');
   try {
     const s1=await db.ref('config').once('value');
-    if(s1.val()) restoreConfig(s1.val());
+    if(s1.val()){
+      restoreConfig(s1.val());
+    } else {
+      // Primera vez — no hay config en Firebase, aplicar defaults
+      applyDefaults();
+    }
     const s2=await db.ref('planDays').once('value');
     const arr=toArray(s2.val());
     if(arr.length) planDays=arr.map(d=>({...d,activities:Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
@@ -2390,21 +2472,26 @@ document.getElementById('user-pill').addEventListener('click', openUserModal);
 document.getElementById('btn-pwd-enter').addEventListener('click', checkPassword);
 document.getElementById('pwd-input').addEventListener('keydown', e=>{ if(e.key==='Enter') checkPassword(); });
 
-// Default tasks
-addBarco('Barco 1','2026-09-21',4);
-addBarco('Barco 2','2026-10-12',3);
-semanasActivas=['2026-09-28','2026-10-05','2026-10-19'];
-updateSemanasFromBarcos();
-addTaskDescarga('Descarga de motos (manual/transpaleta)',72,3);
-addTaskDescarga('Control de inventario',72,2);
-renderLogtravWeekTasks();
-renderYegoWeekTasks();
-renderAdminTasks();
-updateMetrics();
-updateBadgeConfig();
-initBlockTeams();
+// ─── DEFAULTS (solo si Firebase no tiene config guardada) ────────────────────
+function applyDefaults(){
+  addBarco('Barco 1','2026-09-21',4);
+  addBarco('Barco 2','2026-10-12',3);
+  semanasActivas=['2026-09-28','2026-10-05','2026-10-19'];
+  updateSemanasFromBarcos();
+  addTaskDescarga('Descarga de motos (manual/transpaleta)',72,3);
+  addTaskDescarga('Control de inventario',72,2);
+  renderLogtravWeekTasks();
+  renderYegoWeekTasks();
+  renderAdminTasks();
+  updateMetrics();
+  updateBadgeConfig();
+  initBlockTeams();
+}
 
-// Password check
+// Aplicar defaults para renderizado inicial (Firebase los sobreescribirá si hay datos)
+applyDefaults();
+
+// ─── PASSWORD + ARRANQUE ─────────────────────────────────────────────────────
 updateUserUI();
 const savedPwd=localStorage.getItem('yego_pwd');
 if(savedPwd===PWD_CHECK){
