@@ -6,6 +6,7 @@
 <title>Yego · Retroplanning Operación Motos</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -2529,13 +2530,19 @@ function initFirebase(){
   try {
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.database();
-    setSyncStatus('warn','Conectando...');
-    _subscribed=true;
-    _presenceRef=db.ref('presencia/'+sanitizeKey(currentUser));
-    _presenceRef.set({nombre:currentUser,desde:Date.now()});
-    _presenceRef.onDisconnect().remove();
-    loadAllAndSubscribe();
-    db.ref('.info/connected').on('value',snap=>{ if(!snap.val()) setSyncStatus('err','Sin conexión'); });
+    setSyncStatus('warn','Autenticando...');
+    // Login anónimo requerido por las reglas de seguridad
+    firebase.auth().signInAnonymously()
+      .then(()=>{
+        setSyncStatus('warn','Conectando...');
+        _subscribed=true;
+        _presenceRef=db.ref('presencia/'+sanitizeKey(currentUser));
+        _presenceRef.set({nombre:currentUser,desde:Date.now()});
+        _presenceRef.onDisconnect().remove();
+        loadAllAndSubscribe();
+        db.ref('.info/connected').on('value',snap=>{ if(!snap.val()) setSyncStatus('err','Sin conexión'); });
+      })
+      .catch(e=>{ setSyncStatus('err','Error auth: '+e.message); console.error(e); });
   } catch(e){ setSyncStatus('err','Error Firebase: '+e.message); }
 }
 
