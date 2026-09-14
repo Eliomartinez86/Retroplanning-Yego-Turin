@@ -1805,23 +1805,36 @@ function openModal(dayId){
 
   fields += `<div class="modal-row"><label>Nota</label><input type="text" id="reg-nota" value="${reg.nota||''}" placeholder="Observaciones..." style="width:100%"></div>`;
 
-  // Sección reprogramación — solo si hay desviación posible
+  // Reprogramación por actividad
   if(day.activities.length > 0){
     fields += `<div class="modal-row" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px;background:rgba(216,138,239,0.06);border-radius:8px;padding:10px">
       <label style="font-size:12px;font-weight:700;color:#9B1FA8;text-transform:uppercase;letter-spacing:0.04em">↺ Reprogramar volumen no completado</label>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;margin-bottom:8px">Si no se cumple el plan, indica cuándo y cuánto se recuperará.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Fecha de recuperación</div>
-          <input type="date" id="reg-reprog-fecha" value="${reg.reprog_fecha||''}" style="width:100%">
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;margin-bottom:10px">Si no se cumple el plan en algún bloque, indica cuándo y cuánto se recuperará.</div>`;
+
+    day.activities.forEach(a=>{
+      const lbl = a.type==='descarga'?`📦 Descarga (${a.teamLabel||'–'})`:
+                  a.type==='mont-logtravi'?`🔩 Montaje ${a.teamLabel||'–'}`:
+                  a.type==='mont-yego'?`🔧 Montaje ${a.teamLabel||'–'}`:
+                  `🛵 Despliegue (${a.teamLabel||'–'})`;
+      const unit = a.type==='descarga' ? 'contenedores' : 'motos';
+      const prevFecha = reg[`reprog_fecha_${a.type}`] || '';
+      const prevCant  = reg[`reprog_cant_${a.type}`]  || '';
+      fields += `<div style="border:1px solid rgba(155,31,168,0.15);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:white">
+        <div style="font-size:12px;font-weight:700;color:#6B7A96;margin-bottom:6px">${lbl}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px">Fecha recuperación</div>
+            <input type="date" id="reg-reprog-fecha-${a.type}" value="${prevFecha}" style="width:100%;font-size:13px">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px">${unit.charAt(0).toUpperCase()+unit.slice(1)} a recuperar</div>
+            <input type="number" id="reg-reprog-cant-${a.type}" value="${prevCant}" min="0" placeholder="0" style="width:100%;font-size:13px">
+          </div>
         </div>
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Unidades a recuperar</div>
-          <input type="number" id="reg-reprog-cant" value="${reg.reprog_cant||''}" min="0" placeholder="0" style="width:100%">
-        </div>
-      </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:6px">💡 Las unidades reprogramadas se añadirán como actividad extra en la fecha indicada.</div>
-    </div>`;
+      </div>`;
+    });
+
+    fields += `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">💡 Cada bloque se reprograma de forma independiente.</div></div>`;
   }
   v('modal-fields').innerHTML = fields;
   v('modal-overlay').style.display = 'flex';
@@ -1855,18 +1868,20 @@ function saveRegistro(){
       reg.staff_team = Array.from(teamSlots).map(i=>i.value.trim()).filter(Boolean);
     }
 
-    // Guardar reprogramación
-    const reprogFecha = v('reg-reprog-fecha') ? v('reg-reprog-fecha').value : '';
-    const reprogCant = v('reg-reprog-cant') ? parseFloat(v('reg-reprog-cant').value)||0 : 0;
-    if(reprogFecha && reprogCant > 0){
-      reg.reprog_fecha = reprogFecha;
-      reg.reprog_cant = reprogCant;
-      // Inyectar día reprogramado en planDays si no existe ya
-      injectReprogramado(dayId, reprogFecha, reprogCant, day.activities);
-    } else {
-      reg.reprog_fecha = '';
-      reg.reprog_cant = 0;
-    }
+    // Guardar reprogramación por actividad
+    day.activities.forEach(a=>{
+      const fechaInp = v(`reg-reprog-fecha-${a.type}`);
+      const cantInp  = v(`reg-reprog-cant-${a.type}`);
+      if(fechaInp && cantInp){
+        const fecha = fechaInp.value;
+        const cant  = parseFloat(cantInp.value)||0;
+        reg[`reprog_fecha_${a.type}`] = fecha;
+        reg[`reprog_cant_${a.type}`]  = cant;
+        if(fecha && cant > 0){
+          injectReprogramado(dayId, fecha, cant, [a]);
+        }
+      }
+    });
 
     reg._hasDesvio = hasDesvio;
     registros[dayId] = reg;
