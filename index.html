@@ -1248,9 +1248,12 @@ function updateMetrics(){
   const el_hml = v('m-h-total-ml'); if(el_hml) el_hml.textContent = hTotalML.toFixed(1)+' h';
   v('badge-mont-logtravi').textContent = pML + 'p · ' + Math.round(minMLp) + 'min/moto';
 
-  // Montaje Yego — métricas de la primera semana activa
+  // Montaje Yego — métricas de la primera semana que realmente tiene tareas
+  // (la primera semana activa puede no tener ninguna configurada todavía)
   const pMY = vi('personas-mont-yego') || 5;
-  const firstWT = yegoWeekTasks[0];
+  const firstWT = yegoWeekTasks.slice()
+    .sort((a,b)=> a.semana<b.semana ? -1 : a.semana>b.semana ? 1 : 0)
+    .find(w=>(w.tasks||[]).length) || yegoWeekTasks[0];
   const totalMinMY = firstWT ? firstWT.tasks.reduce((a,t)=>a+t.mins,0) : 0;
   const minMYp = pMY>0 ? totalMinMY/pMY : totalMinMY;
   const hLoteMY = pMY>0 ? (mpc()*totalMinMY/pMY)/60 : 0;
@@ -2516,7 +2519,9 @@ function exportPlanning(){
 
   // Tabla de tareas semana a semana (para Logtravi y para Yego)
   function tablaTareasSemana(weekArr, color, titulo, personasDefault){
-    const weeks = (weekArr||[]).filter(w=>w && w.semana);
+    // Ordenar cronológicamente: el array puede venir desordenado de Firebase
+    const weeks = (weekArr||[]).filter(w=>w && w.semana)
+      .slice().sort((a,b)=> a.semana<b.semana ? -1 : a.semana>b.semana ? 1 : 0);
     if(!weeks.length) return '';
     // Columnas = unión de nombres de tarea en orden de aparición
     const nombres = [];
