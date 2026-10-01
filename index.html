@@ -607,12 +607,38 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   <!-- GENERAR -->
   <div style="padding:1.5rem;background:var(--navy);border-radius:var(--radius);display:flex;align-items:center;justify-content:space-between;gap:1rem;box-shadow:var(--shadow)">
     <div>
-      <div style="font-size:15px;font-weight:700;color:var(--white)">¿Todo listo?</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:3px">Genera el planning con la configuración actual.</div>
+      <div style="font-size:15px;font-weight:700;color:var(--white)">¿Has cambiado algo?</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:3px">Replanificar reorganiza los días futuros sin tocar lo ya registrado.</div>
     </div>
-    <div style="display:flex;gap:10px">
+    <div style="display:flex;gap:10px;align-items:center">
       <button class="btn-secondary" style="background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2);color:var(--white)" onclick="pushConfig()">☁ Guardar config</button>
-      <button class="btn-primary" style="background:var(--amber);color:var(--navy)" onclick="generateAndSwitch()">↺ Generar planning →</button>
+      <button class="btn-primary" style="background:var(--amber);color:var(--navy)" onclick="abrirReplan()">↻ Replanificar →</button>
+    </div>
+  </div>
+
+  <!-- ZONA PELIGROSA -->
+  <details style="margin-top:1rem;border:1px solid rgba(232,72,85,0.3);border-radius:var(--radius);background:rgba(232,72,85,0.03)">
+    <summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:600;color:#C2303B">⚠️ Empezar de cero</summary>
+    <div style="padding:0 16px 16px;font-size:13px;color:var(--text-muted);line-height:1.55">
+      Genera el planning desde cero y <strong>borra todos los registros de ejecución</strong>.
+      Úsalo solo al arrancar una operación nueva. Para cambios sobre la operación en curso
+      (un barco que se retrasa, una pieza que no llega) usa <strong>Replanificar</strong>.
+      <div style="margin-top:12px">
+        <button class="btn-secondary" style="border-color:#E84855;color:#C2303B" onclick="generarDesdeCero()">🗑 Generar desde cero</button>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- MODAL REPLANIFICAR -->
+<div class="modal-overlay" id="replan-overlay" style="display:none" onclick="if(event.target===this)cerrarReplan()">
+  <div class="modal">
+    <div class="modal-title" id="replan-title">Replanificar</div>
+    <div class="modal-sub" id="replan-sub">Se conserva todo lo registrado y se recalculan los días futuros.</div>
+    <div id="replan-body"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="cerrarReplan()">Cancelar</button>
+      <button class="btn-save" onclick="confirmarReplan()">↻ Replanificar</button>
     </div>
   </div>
 </div>
@@ -624,7 +650,7 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
   </div>
   <div id="planning-output">
     <div class="no-data-msg" style="border:1px solid var(--border);border-radius:var(--radius);background:var(--white)">
-      Configura la operación y pulsa "Generar planning".
+      Configura la operación y pulsa "Generar desde cero" en la pestaña de configuración.
     </div>
   </div>
 </div>
@@ -837,6 +863,121 @@ function switchTab(name){
   if(name==='costes') renderCostes();
 }
 function generateAndSwitch(){
+  generatePlanning();
+  switchTab('planning');
+}
+
+// ─── REPLANIFICAR ─────────────────────────────────────────────────────────────
+function hoyISO(){
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+
+// Días ya pasados que tienen actividad planificada pero ningún registro guardado
+function diasPasadosSinRegistro(corte){
+  return planDays.filter(d=>{
+    const k = d.dateISO||d.id;
+    return k < corte && (d.activities||[]).length && !registros[d.id];
+  });
+}
+
+// Estado alcanzado hasta el corte (misma regla que usa el planificador)
+function estadoRealHasta(corte, asumirPlan){
+  const e = {cont:0, ml:0, my:0, desp:0};
+  const modo = asumirPlan ? 'plan' : 'cero';
+  planDays.forEach(d=>{
+    if((d.dateISO||d.id) >= corte) return;
+    ACT_TYPES.forEach(t=>{
+      const val = unidadesDia(d, t, modo);
+      if(val === null) return;
+      if(t==='descarga')           e.cont += val;
+      else if(t==='mont-logtravi') e.ml   += val;
+      else if(t==='mont-yego')     e.my   += val;
+      else                         e.desp += val;
+    });
+  });
+  return e;
+}
+
+function abrirReplan(){
+  if(!planDays.length){
+    alert('Todavía no hay planning. Usa "Generar desde cero" la primera vez.');
+    return;
+  }
+  v('replan-overlay').style.display = 'flex';
+  renderReplanBody();
+}
+function cerrarReplan(){ v('replan-overlay').style.display = 'none'; }
+
+function renderReplanBody(){
+  const corte = hoyISO();
+  const asumirPlan = (v('replan-sinreg') ? v('replan-sinreg').value : 'plan') !== 'cero';
+  const sinReg = diasPasadosSinRegistro(corte);
+  const e = estadoRealHasta(corte, asumirPlan);
+  const totalCont  = barcos.reduce((a,b)=>a+b.nCont,0);
+  const totalMotos = totalCont*mpc();
+  const congelados = planDays.filter(d=>(d.dateISO||d.id) < corte).length;
+  const futuros    = planDays.length - congelados;
+
+  const fila = (icono,label,val,total,unidad)=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span>${icono} ${label}</span>
+      <span style="font-weight:700">${Math.round(val)}<span style="color:var(--text-muted);font-weight:400"> / ${Math.round(total)} ${unidad}</span></span>
+    </div>`;
+
+  v('replan-body').innerHTML = `
+    <div class="modal-row">
+      <div style="background:var(--off);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.5">
+        Se congelan los <strong>${congelados} día${congelados!==1?'s':''}</strong> anteriores a hoy
+        (${formatDateLong(corte)}) con sus registros, y se recalculan los
+        <strong>${futuros} día${futuros!==1?'s':''}</strong> restantes con la configuración actual.
+      </div>
+    </div>
+
+    ${sinReg.length ? `
+    <div class="modal-row" style="margin-top:12px">
+      <label style="font-size:12px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:0.04em">⚠️ ${sinReg.length} día${sinReg.length!==1?'s':''} pasado${sinReg.length!==1?'s':''} sin registrar</label>
+      <div style="font-size:12px;color:var(--text-muted);margin:6px 0 8px">
+        ${sinReg.slice(0,6).map(d=>`${d.dayName} ${d.dateStr}`).join(' · ')}${sinReg.length>6?` · +${sinReg.length-6} más`:''}
+      </div>
+      <select id="replan-sinreg" onchange="renderReplanBody()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:'DM Sans',sans-serif">
+        <option value="plan"${asumirPlan?' selected':''}>Asumir que se hizo lo que marcaba el plan</option>
+        <option value="cero"${!asumirPlan?' selected':''}>Contar que no se hizo nada (0)</option>
+      </select>
+    </div>` : `<input type="hidden" id="replan-sinreg" value="plan">`}
+
+    <div class="modal-row" style="margin-top:12px">
+      <label style="font-size:12px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:0.04em">Punto de partida del nuevo plan</label>
+      <div style="margin-top:8px">
+        ${fila('📦','Contenedores descargados', e.cont, totalCont, 'cont.')}
+        ${fila('🔩','Montaje '+getBlockLabel('mont-logtravi'), e.ml, totalMotos, 'motos')}
+        ${fila('🔧','Montaje '+getBlockLabel('mont-yego'), e.my, totalMotos, 'motos')}
+        ${fila('🛵','Desplegadas', e.desp, totalMotos, 'motos')}
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:10px">
+        Quedan por montar <strong>${Math.max(0, Math.round(totalMotos - e.my))} motos</strong>
+        y por desplegar <strong>${Math.max(0, Math.round(totalMotos - e.desp))}</strong>.
+      </div>
+    </div>`;
+}
+
+function confirmarReplan(){
+  const corte = hoyISO();
+  const sel = v('replan-sinreg');
+  const diasSinRegistro = sel && sel.value==='cero' ? 'cero' : 'plan';
+  cerrarReplan();
+  generatePlanning({desde: corte, diasSinRegistro});
+  switchTab('planning');
+  setSyncStatus('ok','Planning replanificado desde '+formatDate(corte));
+}
+
+// Acción destructiva: pide confirmación indicando cuántos registros se pierden
+function generarDesdeCero(){
+  const nReg = Object.keys(registros||{}).length;
+  const msg = nReg > 0
+    ? `Vas a borrar ${nReg} día${nReg!==1?'s':''} de ejecución registrada y generar el planning desde cero.\n\nEsto NO se puede deshacer.\n\nSi solo quieres reflejar un cambio de configuración, cancela y usa "Replanificar".\n\n¿Continuar?`
+    : '¿Generar el planning desde cero con la configuración actual?';
+  if(!confirm(msg)) return;
   generatePlanning();
   switchTab('planning');
 }
@@ -1314,10 +1455,46 @@ function updateBadgeConfig(){
 }
 
 // ─── GENERATE PLANNING ────────────────────────────────────────────────────────
-function generatePlanning(){
+// Genera el planning.
+//   Sin opciones  → desde cero: borra planDays y registros (acción destructiva).
+//   Con opts.desde → REPLANIFICA: congela los días anteriores a esa fecha con
+//   sus registros, lee el estado real alcanzado y recalcula solo el futuro.
+//   opts.diasSinRegistro: 'plan' asume que un día pasado sin registrar salió
+//   según lo previsto; 'cero' cuenta que no se hizo nada.
+function generatePlanning(opts){
   try {
-    planDays = [];
-    registros = {};
+    opts = opts || {};
+    const corte    = opts.desde || null;
+    const esReplan = !!corte;
+    const asumirPlan = opts.diasSinRegistro !== 'cero';
+    if(esReplan) diasSinRegistroModo = asumirPlan ? 'plan' : 'cero';
+
+    // Estado real alcanzado hasta la fecha de corte
+    const estado = {cont:0, ml:0, my:0, desp:0};
+    let diasCongelados = [];
+
+    if(esReplan){
+      diasCongelados = planDays.filter(d=>(d.dateISO||d.id) < corte);
+      const modo = asumirPlan ? 'plan' : 'cero';
+      diasCongelados.forEach(d=>{
+        ACT_TYPES.forEach(t=>{
+          const val = unidadesDia(d, t, modo);
+          if(val === null) return;
+          if(t==='descarga')            estado.cont += val;
+          else if(t==='mont-logtravi')  estado.ml   += val;
+          else if(t==='mont-yego')      estado.my   += val;
+          else                          estado.desp += val;
+        });
+      });
+      planDays = diasCongelados.slice();
+      ultimoCorteReplan = corte;
+      // registros se conserva intacto
+    } else {
+      planDays = [];
+      registros = {};
+      ultimoCorteReplan = null;
+      diasSinRegistroModo = 'plan';
+    }
 
     const jornadaH = hj();
     const pDesc = vi('personas-descarga') || 6;
@@ -1356,12 +1533,12 @@ function generatePlanning(){
     // Total contenedores de todos los barcos
     const contDescargadosTotal = barcos.reduce((a,b)=>a+b.nCont,0);
 
-    // Estado acumulado
-    let contPendDescarga = barcos.reduce((a,b)=>a+b.nCont,0);
-    let motosEnAlmacenLogtravi = 0; // motos descargadas, pendientes de mont. Logtravi
-    let motosListasParaYego = 0;    // motos tras mont. Logtravi, listas para Yego
-    let motosMontadasYego = 0;
-    let motosEnCalle = 0;
+    // Estado acumulado — al replanificar se parte de lo realmente alcanzado
+    let contDescargadosRun     = esReplan ? estado.cont : 0;
+    let motosEnAlmacenLogtravi = esReplan ? Math.max(0, estado.cont*mpc() - estado.ml) : 0;
+    let motosListasParaYego    = esReplan ? estado.ml   : 0;
+    let motosMontadasYego      = esReplan ? estado.my   : 0;
+    let motosEnCalle           = esReplan ? estado.desp : 0;
 
     // Calcular qué contenedores llegan qué semana (por barco)
     const llegadasPorSemana = {}; // semana ISO → n contenedores que llegan
@@ -1373,16 +1550,21 @@ function generatePlanning(){
     // Semanas que trabaja cada bloque
     // Descarga y Logtravi: todas las semanas donde hay contenedores que llegaron ya
     // Yego: solo semanasActivas
-    const todasLasSemanas = [...new Set([
+    // Al replanificar solo se recalculan las semanas desde la del corte
+    const semanaCorte = esReplan ? mondayOfWeek(corte) : null;
+    let todasLasSemanas = [...new Set([
       ...Object.keys(llegadasPorSemana),
       ...semanasActivas
-    ])].sort();
+    ])].sort().filter(s=> !esReplan || s >= semanaCorte);
+    if(esReplan && !todasLasSemanas.length) todasLasSemanas = [semanaCorte];
 
     let contDescargadosAcum = 0; // acumulado por semana según llegadas
 
     // Generar días por cada semana activa
     todasLasSemanas.forEach((semLunes, semIdx)=>{
-      const semanaDias = [];
+      // Los días ya congelados de esta semana cuentan para saber si el bloque
+      // ya empezó (y por tanto si toca aplicar las horas de motos pendientes)
+      const semanaDias = esReplan ? diasCongelados.filter(d=>d.semana===semLunes) : [];
       // Contenedores que llegan esta semana
       const llegaEstasSemana = llegadasPorSemana[semLunes] || 0;
 
@@ -1433,25 +1615,27 @@ function generatePlanning(){
         const dayName = DAY_NAMES[fecha.getDay()];
         const activities = [];
 
+      // Al replanificar, los días anteriores al corte ya están congelados
+      if(esReplan && dateISO < corte) continue;
+
       // Contenedores disponibles hasta este día (acumulado por fecha de inicio de descarga)
       let contDisponiblesHoy = 0;
       Object.entries(contDisponiblesPorFecha).forEach(([fecha, nCont])=>{
         if(dateISO >= fecha) contDisponiblesHoy += nCont;
       });
 
-      // DESCARGA — si hay contenedores disponibles para este día
-      const contDescargadosYa = planDays.filter(pd=>pd.activities.some(a=>a.type==='descarga'))
-        .reduce((acc,pd)=>acc+pd.activities.filter(a=>a.type==='descarga').reduce((a2,a)=>a2+a.planCont,0),0);
-      const contPendDesc = contDisponiblesHoy - contDescargadosYa;
+      // DESCARGA — si quedan contenedores disponibles por descargar
+      const contPendDesc = contDisponiblesHoy - contDescargadosRun;
       if(contPendDesc > 0){
           const descHoy = Math.min(maxContDescDia, contPendDesc, Math.max(1,maxContDescDia));
           const motosDesc = descHoy * mpc();
           motosEnAlmacenLogtravi += motosDesc;
+          contDescargadosRun += descHoy;
           activities.push({
             type:'descarga', team: getBlockTeam('descarga'), teamLabel: getBlockLabel('descarga'),
             planCont: descHoy, planMotos: motosDesc,
             personas: pDesc, horas: hContDesc*descHoy,
-            acum: planDays.filter(pd=>pd.activities.some(a=>a.type==='descarga')).reduce((a,pd)=>a+pd.activities.filter(a=>a.type==='descarga').reduce((a2,a)=>a2+a.planCont,0),0)+descHoy,
+            acum: contDescargadosRun,
             total: contDescargadosTotal
           });
         }
@@ -1712,7 +1896,7 @@ function renderPlanning(){
           const chipLabel = a.type==='descarga'?`📦 Descarga (${tLabel})`:a.type==='mont-logtravi'?`🔩 Montaje (${tLabel})`:a.type==='mont-yego'?`🔧 Montaje (${tLabel})`:`🛵 Despliegue (${tLabel})`;
           const unidad = a.type==='descarga' ? 'cont.' : 'motos';
           const planStr = a.type==='descarga' ? `${a.planCont} cont. (${a.planMotos} motos)` : `${a.planMotos} motos`;
-          const acumStr = `Plan acum.: ${Math.round(a.acum||0)}/${Math.round(a.total||0)} ${unidad}`;
+          const acumStr = `Previsto acum.: ${Math.round(a.acum||0)}/${Math.round(a.total||0)} ${unidad}`;
           let realStr = '';
           if(reg && reg[a.type]!==undefined){
             const rv = reg[a.type]+' '+unidad;
@@ -1841,6 +2025,34 @@ function migrarReprogramaciones(){
 // refleja tanto lo realmente hecho como las cantidades reprogramadas.
 const ACT_TYPES = ['descarga','mont-logtravi','mont-yego','despliegue'];
 
+// Cómo contar los días pasados que no tienen registro ('plan' o 'cero') y
+// hasta dónde llegó la última replanificación. Único punto de verdad para
+// que el planificador y los acumulados nunca discrepen.
+let diasSinRegistroModo = 'plan';
+let ultimoCorteReplan = null;
+
+// Unidades de un tipo consolidadas en un día:
+//   · lo registrado, si ese tipo está registrado
+//   · el plan, si el día tiene registro pero no ese tipo (el modal precarga el
+//     plan, así que un tipo ausente significa "no se tocó", no "no se hizo")
+//   · según el modo elegido, si el día no tiene ningún registro
+// Devuelve null si el día no tiene actividad de ese tipo.
+function unidadesDia(d, t, modo){
+  const actsT = (d.activities||[]).filter(a=>a.type===t);
+  if(!actsT.length) return null;
+  const plan = actsT.reduce((s,a)=>s+(t==='descarga'?(a.planCont||0):(a.planMotos||0)),0);
+  const reg = registros[d.id];
+  if(reg && reg[t]!==undefined) return parseFloat(reg[t])||0;
+  if(reg) return plan;
+  return modo==='cero' ? 0 : plan;
+}
+
+// Fecha hasta la que se considera consolidado el pasado
+function limiteConsolidado(){
+  const hoy = hoyISO();
+  return (ultimoCorteReplan && ultimoCorteReplan > hoy) ? ultimoCorteReplan : hoy;
+}
+
 function recalcAcumulados(){
   planDays.sort((a,b)=>{
     const ka = a.dateISO||a.id, kb = b.dateISO||b.id;
@@ -1848,24 +2060,31 @@ function recalcAcumulados(){
   });
   const totalCont  = barcos.reduce((a,b)=>a+b.nCont,0);
   const totalMotos = totalCont*mpc();
-  const accPlan = {}, accReal = {}, hayReal = {};
-  ACT_TYPES.forEach(t=>{ accPlan[t]=0; accReal[t]=0; hayReal[t]=false; });
+  const limite = limiteConsolidado();
+  const accPrev = {}, accReal = {}, hayReal = {};
+  ACT_TYPES.forEach(t=>{ accPrev[t]=0; accReal[t]=0; hayReal[t]=false; });
 
   planDays.forEach(d=>{
     const reg = registros[d.id];
-    // El registro guarda UN valor por tipo y día → se suma una sola vez
-    if(reg){
-      ACT_TYPES.forEach(t=>{
-        if(reg[t]!==undefined && (d.activities||[]).some(a=>a.type===t)){
-          accReal[t] += parseFloat(reg[t])||0;
-          hayReal[t] = true;
-        }
-      });
-    }
+    const consolidado = (d.dateISO||d.id) < limite;
+    // Real: el registro guarda UN valor por tipo y día → se suma una sola vez
+    ACT_TYPES.forEach(t=>{
+      if(reg && reg[t]!==undefined && (d.activities||[]).some(a=>a.type===t)){
+        accReal[t] += parseFloat(reg[t])||0;
+        hayReal[t] = true;
+      }
+    });
+    // Previsto acumulado: un día ya consolidado cuenta por lo REAL, no por su
+    // plan original. Si no, al replanificar el déficit se contaría dos veces:
+    // una en el día congelado y otra en el día futuro que lo recupera.
+    ACT_TYPES.forEach(t=>{
+      const val = unidadesDia(d, t, consolidado ? diasSinRegistroModo : 'plan');
+      if(val !== null) accPrev[t] += val;
+    });
+
     (d.activities||[]).forEach(a=>{
       const esDesc = a.type==='descarga';
-      accPlan[a.type] += esDesc ? (a.planCont||0) : (a.planMotos||0);
-      a.acum      = accPlan[a.type];
+      a.acum      = accPrev[a.type];
       a.acumReal  = accReal[a.type];
       a.tieneReal = hayReal[a.type];
       a.total     = esDesc ? totalCont : totalMotos;
@@ -2772,7 +2991,9 @@ function collectConfig(){
     costeDietas: v('coste-dietas').value,
     costeAlojamiento: v('coste-alojamiento').value,
     ciudadesVuelo: ciudadesVuelo,
-    costesSemanales: costesSemanales
+    costesSemanales: costesSemanales,
+    ultimoCorteReplan: ultimoCorteReplan || '',
+    diasSinRegistroModo: diasSinRegistroModo
   };
 }
 
@@ -2825,6 +3046,8 @@ function restoreConfig(cfg){
     syncCiudadesVuelo();
   }
   if(cfg.costesSemanales) costesSemanales=cfg.costesSemanales;
+  ultimoCorteReplan   = cfg.ultimoCorteReplan || null;
+  diasSinRegistroModo = cfg.diasSinRegistroModo === 'cero' ? 'cero' : 'plan';
   updateMetrics();
 }
 
