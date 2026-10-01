@@ -1195,13 +1195,52 @@ function addCiudadVuelo(ciudad='', precio=200, salario=22000){
   const tbody = v('tbody-vuelos');
   const tr = document.createElement('tr');
   tr.innerHTML = `
-    <td><input type="text" value="${ciudad}" placeholder="Ej: Valencia, Burdeos..." style="width:100%" oninput="syncCiudadesVuelo()"></td>
+    <td><input type="text" value="${ciudad}" data-prev="${ciudad}" placeholder="Ej: Valencia, Burdeos..." style="width:100%" onchange="renombrarCiudadVuelo(this)"></td>
     <td><input type="number" value="${precio}" min="0" style="width:100%;text-align:center" oninput="syncCiudadesVuelo()"></td>
     <td><input type="number" value="${salario}" min="0" step="500" style="width:100%;text-align:center" oninput="syncCiudadesVuelo()"></td>
     <td><button class="btn-del" onclick="this.closest('tr').remove();syncCiudadesVuelo();renderCostes()">✕</button></td>`;
   tbody.appendChild(tr);
   syncCiudadesVuelo();
 }
+// El nombre de ciudad se confirma al salir del campo (onchange), no en cada
+// tecla: con oninput cada letra creaba una clave en costesSemanales
+// ("V", "Va", "Val"... "Valencia"), llenando Firebase de entradas basura.
+// Al renombrar una ciudad se arrastra el número de personas ya introducido.
+function renombrarCiudadVuelo(inp){
+  const antes = (inp.dataset.prev||'').trim();
+  const ahora = inp.value.trim();
+  if(antes && ahora && antes !== ahora){
+    Object.keys(costesSemanales).forEach(sem=>{
+      const reg = costesSemanales[sem];
+      if(reg && reg[antes] !== undefined){
+        reg[ahora] = reg[antes];
+        delete reg[antes];
+      }
+    });
+  }
+  inp.dataset.prev = ahora;
+  syncCiudadesVuelo();
+  limpiarCostesSemanales();
+  renderCostes();
+}
+
+// Elimina de costesSemanales las ciudades que ya no existen y las semanas
+// que no están en el planning actual (restos de generaciones anteriores).
+function limpiarCostesSemanales(){
+  const ciudadesOK = new Set(ciudadesVuelo.map(c=>c.ciudad).filter(Boolean));
+  const semanasOK  = new Set(planDays.map(d=>d.semana));
+  Object.keys(costesSemanales).forEach(sem=>{
+    if(semanasOK.size && !semanasOK.has(sem)){ delete costesSemanales[sem]; return; }
+    const reg = costesSemanales[sem];
+    if(!reg || typeof reg!=='object') return;
+    Object.keys(reg).forEach(ciudad=>{
+      // Se conserva una ciudad desconocida solo si tiene personas asignadas,
+      // para no borrar un dato real por un nombre mal escrito
+      if(!ciudadesOK.has(ciudad) && !(Number(reg[ciudad])>0)) delete reg[ciudad];
+    });
+  });
+}
+
 function syncCiudadesVuelo(){
   ciudadesVuelo = [];
   v('tbody-vuelos').querySelectorAll('tr').forEach(r=>{
@@ -2250,6 +2289,7 @@ function renderCostes(){
     return;
   }
   const dietas=vi('coste-dietas')||40, bonus=25, aloj=vi('coste-alojamiento')||80;
+  limpiarCostesSemanales();
   const weeksMap={};
   planDays.forEach(d=>{ if(!weeksMap[d.semana]) weeksMap[d.semana]=[]; weeksMap[d.semana].push(d); });
 
