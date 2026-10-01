@@ -1492,10 +1492,13 @@ function generatePlanning(){
       }
     });
 
-    // Continuar semanas adicionales si quedan motos por montar/desplegar
-    // (hasta completar o 20 semanas más)
+    // Continuar semanas adicionales si quedan motos por montar/desplegar.
+    // Se corta en cuanto una semana no produce ninguna actividad, para no
+    // generar decenas de semanas vacías que después inflaban el módulo de costes.
     let extraSem = 0;
-    while((motosListasParaYego > motosMontadasYego || motosMontadasYego > motosEnCalle) && extraSem < 20){
+    let sinProgreso = false;
+    while((motosListasParaYego > motosMontadasYego || motosMontadasYego > motosEnCalle) && extraSem < 20 && !sinProgreso){
+      const _snapMont = motosMontadasYego, _snapCalle = motosEnCalle, _snapAlm = motosEnAlmacenLogtravi;
       extraSem++;
       const lastSem = todasLasSemanas[todasLasSemanas.length-1];
       const nextSem = addDays(lastSem, 7);
@@ -1539,8 +1542,20 @@ function generatePlanning(){
 
         planDays.push({id:dateISO,dayName,dateStr:formatDate(dateISO),dateISO,activities,semana:nextSem,semIdx:todasLasSemanas.length-1});
       }
+
+      // ¿Esta semana extra ha avanzado algo? Si no, cortar y descartarla
+      if(motosMontadasYego===_snapMont && motosEnCalle===_snapCalle && motosEnAlmacenLogtravi===_snapAlm){
+        sinProgreso = true;
+        planDays = planDays.filter(d=>d.semana!==nextSem);
+        todasLasSemanas.pop();
+      }
     }
 
+    // Eliminar semanas completamente vacías del final
+    const semanasConActividad = new Set(planDays.filter(d=>(d.activities||[]).length).map(d=>d.semana));
+    planDays = planDays.filter(d=>semanasConActividad.has(d.semana));
+
+    recalcAcumulados();
     renderPlanning();
     renderDesviaciones();
     updateTabBadgePlanning();
@@ -1589,9 +1604,26 @@ function renderPlanning(){
   });
   const semanas = Object.keys(weeksMap).sort();
 
+  // Progreso real (incluye el efecto de las reprogramaciones, porque se mide
+  // sobre lo registrado y sobre el plan ya reprogramado)
+  let realMY=0, planMYTotal=0, reprogPend=0;
+  planDays.forEach(d=>{
+    const reg = registros[d.id];
+    (d.activities||[]).forEach(a=>{
+      if(a.type!=='mont-yego') return;
+      planMYTotal += a.planMotos||0;
+      if(a._reprogFrom) reprogPend += Object.values(a._reprogFrom).reduce((x,y)=>x+(Number(y)||0),0);
+    });
+    if(reg && reg['mont-yego']!==undefined && (d.activities||[]).some(a=>a.type==='mont-yego')){
+      realMY += parseFloat(reg['mont-yego'])||0;
+    }
+  });
+  const pctReal = totalMotos>0 ? Math.round(realMY/totalMotos*100) : 0;
+
   let html = `
-    <div class="summary-bar" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.5rem">
+    <div class="summary-bar" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.5rem">
       <div class="summary-block"><div class="s-label">Total motos</div><div class="s-val">${totalMotos}</div><div class="s-sub">${totalCont} contenedores</div></div>
+      <div class="summary-block"><div class="s-label">Montadas Yego (real)</div><div class="s-val">${Math.round(realMY)}/${totalMotos}</div><div class="s-sub">${pctReal}% · faltan ${Math.max(0,totalMotos-Math.round(realMY))}${reprogPend>0?` · ↺ ${reprogPend} reprog.`:''}</div></div>
       <div class="summary-block"><div class="s-label">Semanas</div><div class="s-val">${semanas.length}</div><div class="s-sub">${semanasActivas.length} activas Yego</div></div>
       <div class="summary-block"><div class="s-label">Equipo total/día</div><div class="s-val">${totalEquipo}</div><div class="s-sub">Logtravi ${pDesc+pML}p · Yego ${pMY+pDesp}p</div></div>
       <div class="summary-block"><div class="s-label">Jornada</div><div class="s-val">${hj()}h</div><div class="s-sub">por equipo/día</div></div>
@@ -1642,22 +1674,34 @@ function renderPlanning(){
           const chipClass = a.type==='descarga'?'chip-descarga':a.type==='mont-logtravi'?'chip-logtravi':a.type==='mont-yego'?'chip-yego':'chip-despliegue';
           const tLabel = a.teamLabel || (a.team==='yego'?'YEGO':'PARTNER');
           const chipLabel = a.type==='descarga'?`📦 Descarga (${tLabel})`:a.type==='mont-logtravi'?`🔩 Montaje (${tLabel})`:a.type==='mont-yego'?`🔧 Montaje (${tLabel})`:`🛵 Despliegue (${tLabel})`;
+          const unidad = a.type==='descarga' ? 'cont.' : 'motos';
           const planStr = a.type==='descarga' ? `${a.planCont} cont. (${a.planMotos} motos)` : `${a.planMotos} motos`;
-          const acumStr = a.type==='descarga' ? `${a.acum}/${a.total} cont.` : `${Math.round(a.acum)}/${Math.round(a.total)} motos`;
+          const acumStr = `Plan acum.: ${Math.round(a.acum||0)}/${Math.round(a.total||0)} ${unidad}`;
           let realStr = '';
           if(reg && reg[a.type]!==undefined){
-            const rv = a.type==='descarga' ? reg[a.type]+' cont.' : reg[a.type]+' motos';
+            const rv = reg[a.type]+' '+unidad;
             const isDesvio = Math.abs(reg[a.type]-(a.type==='descarga'?a.planCont:a.planMotos))>0;
             realStr = `<span class="task-meta ${isDesvio?'desvio':'real'}">Real: ${rv}</span>`;
           }
+          // Acumulado REAL: refleja lo realmente hecho (y, por tanto, el efecto
+          // de las reprogramaciones) sobre el total de la operación
+          let acumRealStr = '';
+          if(a.tieneReal){
+            const falta = Math.max(0, Math.round((a.total||0) - (a.acumReal||0)));
+            acumRealStr = `<span class="dot"></span><span class="task-meta real" style="font-weight:700">Real acum.: ${Math.round(a.acumReal||0)}/${Math.round(a.total||0)} ${unidad} · faltan ${falta}</span>`;
+          }
+          // Cantidad que llega a este día desde reprogramaciones de días previos
+          const reprogTot = a._reprogFrom ? Object.values(a._reprogFrom).reduce((x,y)=>x+(Number(y)||0),0) : 0;
+          const reprogStr = reprogTot>0
+            ? `<span class="dot"></span><span class="task-meta" style="color:#9333EA;font-weight:700">↺ incluye ${reprogTot} ${unidad} reprogramadas</span>` : '';
           html += `<div class="task-line">
             <span class="chip ${chipClass}">${chipLabel}</span>
             <span class="task-meta">Plan: ${planStr}</span>
             <span class="dot"></span>
-            <span class="task-meta">${a.personas}p · ${a.horas.toFixed(1)}h</span>
+            <span class="task-meta">${a.personas}p · ${(a.horas||0).toFixed(1)}h</span>
             <span class="dot"></span>
             <span class="task-meta">${acumStr}</span>
-            ${realStr}
+            ${realStr}${acumRealStr}${reprogStr}
           </div>`;
           // Tareas Yego detalle
           if((a.type==='mont-yego'||a.type==='mont-logtravi') && a.pendientesInfo && a.pendientesInfo.length){
@@ -1718,41 +1762,171 @@ function renderPlanning(){
   output.innerHTML = html;
 }
 
-// ─── REPROGRAMACIÓN ──────────────────────────────────────────────────────────
-function injectReprogramado(srcDayId, fecha, cant, srcActivities){
-  // Buscar si ya existe un día reprogramado para esa fecha
-  let target = planDays.find(d=>d.id===fecha && d._reprogramadoDe===srcDayId);
-  if(target){
-    // Actualizar cantidad
-    target.activities.forEach(a=>{ a.planMotos=cant; a.planCont=cant; });
-    return;
-  }
-  // Buscar si ya existe el día en planDays (día normal)
-  const existente = planDays.find(d=>d.id===fecha);
-  if(existente){
-    // Añadir actividades reprogramadas a ese día
-    srcActivities.forEach(a=>{
-      const yaExiste = existente.activities.find(x=>x.type===a.type && x._reprog);
-      if(!yaExiste){
-        existente.activities.push({...a, planMotos:cant, planCont:cant, _reprog:true, _reprogDe:srcDayId});
+// ─── MIGRACIÓN DE DATOS ───────────────────────────────────────────────────────
+// Las reprogramaciones guardadas por versiones anteriores de la herramienta
+// usaban `_reprogDe` y creaban una SEGUNDA actividad del mismo tipo en el día
+// destino. El formato nuevo guarda `_reprogFrom:{diaOrigen:cantidad}` y suma
+// sobre la actividad existente. Esta función convierte los datos antiguos al
+// formato nuevo sin perder cantidades, para que al actualizar la herramienta
+// no se dupliquen ni se pierdan motos reprogramadas.
+function migrarReprogramaciones(){
+  planDays.forEach(d=>{
+    let acts = (d.activities||[]);
+    // Normalizar estructuras que Firebase puede devolver como objeto
+    acts.forEach(a=>{
+      if(a._reprogFrom && typeof a._reprogFrom!=='object') a._reprogFrom = {};
+      if(a.tareas && !Array.isArray(a.tareas)) a.tareas = toArray(a.tareas)||[];
+      if(a.pendientesInfo && !Array.isArray(a.pendientesInfo)) a.pendientesInfo = toArray(a.pendientesInfo)||[];
+      // Formato antiguo → nuevo
+      if(a._reprog && a._reprogDe && !a._reprogFrom){
+        const esDesc = a.type==='descarga';
+        a._reprogFrom = { [a._reprogDe]: esDesc ? (a.planCont||0) : (a.planMotos||0) };
       }
     });
-    existente._tieneReprog = true;
-  } else {
-    // Crear día nuevo
-    const d = new Date(fecha+'T12:00:00');
-    const dayName = DAY_NAMES[d.getDay()];
-    const newDay = {
-      id: fecha, dayName, dateStr: formatDate(fecha), dateISO: fecha,
-      semana: mondayOfWeek(fecha), semIdx: -1,
-      _reprogramadoDe: srcDayId, _esNuevo: true,
-      activities: srcActivities.map(a=>({...a, planMotos:cant, planCont:cant, _reprog:true, _reprogDe:srcDayId}))
-    };
-    // Insertar en orden cronológico
-    const insertIdx = planDays.findIndex(d=>d.id > fecha);
-    if(insertIdx>=0) planDays.splice(insertIdx,0,newDay);
-    else planDays.push(newDay);
-  }
+    // Fusionar actividades duplicadas del mismo tipo en un mismo día
+    const porTipo = {};
+    acts.forEach(a=>{
+      if(!porTipo[a.type]){ porTipo[a.type] = a; return; }
+      const base   = porTipo[a.type];
+      const esDesc = a.type==='descarga';
+      if(esDesc){
+        base.planCont  = (base.planCont||0) + (a.planCont||0);
+        base.planMotos = (base.planCont||0) * mpc();
+      } else {
+        base.planMotos = (base.planMotos||0) + (a.planMotos||0);
+      }
+      base.horas = (base.horas||0) + (a.horas||0);
+      if(a._reprogFrom){
+        base._reprogFrom = base._reprogFrom || {};
+        Object.entries(a._reprogFrom).forEach(([k,val])=>{
+          base._reprogFrom[k] = (Number(base._reprogFrom[k])||0) + (Number(val)||0);
+        });
+        base._reprog = true;
+      }
+      if(!base.tareas || !base.tareas.length) base.tareas = a.tareas||[];
+      a._fusionada = true;
+    });
+    d.activities = acts.filter(a=>!a._fusionada);
+    d._tieneReprog = d.activities.some(a=>a._reprogFrom && Object.keys(a._reprogFrom).length);
+    delete d._reprogramadoDe;
+  });
+}
+
+// ─── ACUMULADOS ───────────────────────────────────────────────────────────────
+// Recalcula, en orden cronológico, el acumulado PLAN y el acumulado REAL de
+// cada actividad. Debe llamarse después de generar el planning, después de
+// reprogramar y después de guardar un registro: así el contador "X/504 motos"
+// refleja tanto lo realmente hecho como las cantidades reprogramadas.
+const ACT_TYPES = ['descarga','mont-logtravi','mont-yego','despliegue'];
+
+function recalcAcumulados(){
+  planDays.sort((a,b)=>{
+    const ka = a.dateISO||a.id, kb = b.dateISO||b.id;
+    return ka<kb ? -1 : ka>kb ? 1 : 0;
+  });
+  const totalCont  = barcos.reduce((a,b)=>a+b.nCont,0);
+  const totalMotos = totalCont*mpc();
+  const accPlan = {}, accReal = {}, hayReal = {};
+  ACT_TYPES.forEach(t=>{ accPlan[t]=0; accReal[t]=0; hayReal[t]=false; });
+
+  planDays.forEach(d=>{
+    const reg = registros[d.id];
+    // El registro guarda UN valor por tipo y día → se suma una sola vez
+    if(reg){
+      ACT_TYPES.forEach(t=>{
+        if(reg[t]!==undefined && (d.activities||[]).some(a=>a.type===t)){
+          accReal[t] += parseFloat(reg[t])||0;
+          hayReal[t] = true;
+        }
+      });
+    }
+    (d.activities||[]).forEach(a=>{
+      const esDesc = a.type==='descarga';
+      accPlan[a.type] += esDesc ? (a.planCont||0) : (a.planMotos||0);
+      a.acum      = accPlan[a.type];
+      a.acumReal  = accReal[a.type];
+      a.tieneReal = hayReal[a.type];
+      a.total     = esDesc ? totalCont : totalMotos;
+    });
+  });
+}
+
+// ─── REPROGRAMACIÓN ──────────────────────────────────────────────────────────
+// Borra todas las cantidades que el día `srcDayId` había reprogramado hacia
+// otros días. Se llama antes de volver a aplicar el formulario, de modo que
+// editar un registro sustituye la reprogramación anterior en lugar de sumarla.
+function clearReprogramado(srcDayId){
+  planDays.forEach(d=>{
+    (d.activities||[]).forEach(a=>{
+      if(!a._reprogFrom || a._reprogFrom[srcDayId]===undefined) return;
+      const cant   = Number(a._reprogFrom[srcDayId])||0;
+      delete a._reprogFrom[srcDayId];
+      const esDesc = a.type==='descarga';
+      const units  = esDesc ? (a.planCont||0) : (a.planMotos||0);
+      const hUnit  = units>0 ? (a.horas||0)/units : 0;
+      const nuevo  = Math.max(0, units - cant);
+      if(esDesc){ a.planCont = nuevo; a.planMotos = nuevo*mpc(); }
+      else { a.planMotos = nuevo; }
+      a.horas = Math.max(0, (a.horas||0) - cant*hUnit);
+      if(!Object.keys(a._reprogFrom).length) a._reprog = false;
+    });
+    // Fuera actividades que se han quedado a cero
+    d.activities = (d.activities||[]).filter(a=>{
+      const units = a.type==='descarga' ? (a.planCont||0) : (a.planMotos||0);
+      return units > 0;
+    });
+  });
+  // Fuera días creados solo por reprogramación que ya no tienen nada
+  planDays = planDays.filter(d=>!(d._esNuevo && !(d.activities||[]).length));
+  planDays.forEach(d=>{
+    d._tieneReprog = (d.activities||[]).some(a=>a._reprogFrom && Object.keys(a._reprogFrom).length);
+  });
+}
+
+// Reprograma `cant` unidades de cada actividad de `srcActivities` hacia `fecha`.
+// Si ese día ya tiene una actividad del mismo tipo, SUMA a ella (no duplica),
+// de modo que el registro del día y los acumulados siguen siendo coherentes.
+function injectReprogramado(srcDayId, fecha, cant, srcActivities){
+  if(!fecha || !(cant>0)) return;
+  srcActivities.forEach(src=>{
+    const tipo     = src.type;
+    const esDesc   = tipo==='descarga';
+    const srcUnits = esDesc ? (src.planCont||0) : (src.planMotos||0);
+    const hUnit    = srcUnits>0 ? (src.horas||0)/srcUnits : 0;
+
+    let target = planDays.find(d=>d.id===fecha);
+    if(!target){
+      const fd = new Date(fecha+'T12:00:00');
+      target = {
+        id: fecha, dayName: DAY_NAMES[fd.getDay()],
+        dateStr: formatDate(fecha), dateISO: fecha,
+        semana: mondayOfWeek(fecha), semIdx: -1,
+        _esNuevo: true, activities: []
+      };
+      const insertIdx = planDays.findIndex(d=>(d.dateISO||d.id) > fecha);
+      if(insertIdx>=0) planDays.splice(insertIdx,0,target); else planDays.push(target);
+    }
+
+    let act = target.activities.find(a=>a.type===tipo);
+    if(!act){
+      act = {...src, planCont:0, planMotos:0, horas:0, _reprogFrom:{},
+             tareas: src.tareas||[], pendientesInfo:[], horasExtraPendientes:0};
+      target.activities.push(act);
+    }
+    if(!act._reprogFrom) act._reprogFrom = {};
+
+    const prevCant = Number(act._reprogFrom[srcDayId])||0;
+    const unitsAct = esDesc ? (act.planCont||0) : (act.planMotos||0);
+    const base     = Math.max(0, unitsAct - prevCant);
+    act._reprogFrom[srcDayId] = cant;
+    const nuevo = base + cant;
+    if(esDesc){ act.planCont = nuevo; act.planMotos = nuevo*mpc(); }
+    else { act.planMotos = nuevo; }
+    act.horas  = Math.max(0, (act.horas||0) - prevCant*hUnit) + cant*hUnit;
+    act._reprog = true;
+    target._tieneReprog = true;
+  });
+  recalcAcumulados();
 }
 
 // ─── MODAL REGISTRO ───────────────────────────────────────────────────────────
@@ -1868,8 +2042,12 @@ function saveRegistro(){
       reg.staff_team = Array.from(teamSlots).map(i=>i.value.trim()).filter(Boolean);
     }
 
-    // Guardar reprogramación por actividad
-    day.activities.forEach(a=>{
+    // Guardar reprogramación por actividad.
+    // Primero se anula lo que este día había reprogramado antes, para que
+    // editar el registro sustituya la cantidad en vez de acumularla.
+    const actividadesOriginales = day.activities.map(a=>({...a}));
+    clearReprogramado(dayId);
+    actividadesOriginales.forEach(a=>{
       const fechaInp = v(`reg-reprog-fecha-${a.type}`);
       const cantInp  = v(`reg-reprog-cant-${a.type}`);
       if(fechaInp && cantInp){
@@ -1886,13 +2064,18 @@ function saveRegistro(){
     reg._hasDesvio = hasDesvio;
     registros[dayId] = reg;
 
+    recalcAcumulados();
     closeModal();
     renderPlanning();
     renderDesviaciones();
+    renderCostes();
 
     if(FB_CONFIGURED && db){
       _ownWrite = true;
-      db.ref('registros').set(registros)
+      Promise.all([
+        db.ref('registros').set(registros),
+        db.ref('planDays').set(planDays.map(d=>({...d})))
+      ])
         .then(()=>{ setSyncStatus('ok','Registro guardado'); setTimeout(()=>{ _ownWrite=false; setSyncStatus('ok','Sincronizado · '+currentUser); },2000); })
         .catch(e=>{ _ownWrite=false; setSyncStatus('err','Error: '+e.message); });
     }
@@ -2066,7 +2249,23 @@ function renderCostes(){
   const dietas=vi('coste-dietas')||40, bonus=25, aloj=vi('coste-alojamiento')||80;
   const weeksMap={};
   planDays.forEach(d=>{ if(!weeksMap[d.semana]) weeksMap[d.semana]=[]; weeksMap[d.semana].push(d); });
-  const semanas=Object.keys(weeksMap).sort();
+
+  // Solo figuran las semanas en las que desplazamos gente de YEGO: los vuelos,
+  // dietas, alojamiento y salarios son costes del equipo Yego desplazado, así
+  // que una semana sin personal Yego no genera coste y no debe aparecer.
+  const esSemanaYego = sem => (weeksMap[sem]||[]).some(d=>
+    (d.activities||[]).some(a=>a.team==='yego' && (a.personas||0)>0)
+  );
+  const semanasTodas = Object.keys(weeksMap).sort();
+  const semanas = semanasTodas.filter(esSemanaYego);
+  const semanasSinYego = semanasTodas.length - semanas.length;
+
+  if(!semanas.length){
+    output.innerHTML='<div class="no-data-msg" style="border:1px solid var(--border);border-radius:10px;background:var(--white)">No hay ninguna semana con personal YEGO desplazado. Selecciona semanas activas de Yego en la configuración.</div>';
+    const tbEl0=v('tabbadge-costes'); if(tbEl0) tbEl0.textContent='0 €';
+    return;
+  }
+
   semanas.forEach(s=>{ if(!costesSemanales[s]) costesSemanales[s]={}; ciudadesVuelo.forEach(c=>{ if(costesSemanales[s][c.ciudad]===undefined) costesSemanales[s][c.ciudad]=0; }); });
 
   let totalV=0,totalD=0,totalB=0,totalA=0,totalS=0;
@@ -2074,13 +2273,14 @@ function renderCostes(){
 
   semanas.forEach(sem=>{
     const days=weeksMap[sem];
-    const diasAct=days.filter(d=>d.activities&&d.activities.length>0).length;
-    let maxPLog=0,maxPYego=0;
-    days.forEach(d=>d.activities.forEach(a=>{
-      if(a.team==='logtravi') maxPLog=Math.max(maxPLog,a.personas||0);
+    let maxPYego=0;
+    // Días en los que realmente hay actividad de YEGO: son los que generan
+    // dietas, alojamiento y salario del equipo desplazado
+    const diasAct=days.filter(d=>(d.activities||[]).some(a=>a.team==='yego' && (a.personas||0)>0)).length;
+    days.forEach(d=>(d.activities||[]).forEach(a=>{
       if(a.team==='yego') maxPYego=Math.max(maxPYego,a.personas||0);
     }));
-    const pTot=maxPLog+maxPYego;
+    const pTot=maxPYego;
     const cD=pTot*diasAct*dietas, cB=pTot*diasAct*bonus, cA=pTot*diasAct*aloj;
     let cV=0,cS=0;
     const regSem=costesSemanales[sem]||{};
@@ -2090,7 +2290,7 @@ function renderCostes(){
 
     html+=`<div class="costes-semana">
       <div class="costes-semana-header">
-        <span class="costes-semana-title">Sem ${formatDate(sem)} · ${diasAct} días · ${pTot} personas</span>
+        <span class="costes-semana-title">Sem ${formatDate(sem)} · ${diasAct} días con equipo Yego · ${pTot} personas Yego</span>
         <span class="costes-semana-total">${fmt(total)}</span>
       </div>
       <table class="costes-table"><thead><tr><th>Concepto</th><th>Cálculo</th><th style="text-align:right">Importe</th></tr></thead><tbody>
@@ -2123,7 +2323,7 @@ function renderCostes(){
   const tbEl=v('tabbadge-costes'); if(tbEl) tbEl.textContent=fmt(totalG);
 
   const summary=`<div class="costes-summary" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.5rem">
-    <div class="costes-kpi"><div class="ck-label">💶 Total</div><div class="ck-val">${fmt(totalG)}</div><div class="ck-sub">${semanas.length} semanas</div></div>
+    <div class="costes-kpi"><div class="ck-label">💶 Total</div><div class="ck-val">${fmt(totalG)}</div><div class="ck-sub">${semanas.length} semana${semanas.length!==1?'s':''} con equipo Yego${semanasSinYego>0?` · ${semanasSinYego} sin Yego excluida${semanasSinYego!==1?'s':''}`:''}</div></div>
     <div class="costes-kpi"><div class="ck-label">✈️ Vuelos</div><div class="ck-val">${fmt(totalV)}</div><div class="ck-sub">${totalG?Math.round(totalV/totalG*100):0}%</div></div>
     <div class="costes-kpi"><div class="ck-label">🍽️ Dietas+Bonus</div><div class="ck-val">${fmt(totalD+totalB)}</div><div class="ck-sub">${totalG?Math.round((totalD+totalB)/totalG*100):0}%</div></div>
     <div class="costes-kpi"><div class="ck-label">🏨 Alojamiento</div><div class="ck-val">${fmt(totalA)}</div><div class="ck-sub">${totalG?Math.round(totalA/totalG*100):0}%</div></div>
@@ -2290,6 +2490,84 @@ function exportPlanning(){
   const fechaDesp = v('fecha-inicio-despliegue').value;
   const primeraYego = semanasActivas.length>0 ? formatDateLong(semanasActivas[0]) : '–';
 
+  // ── Tareas de montaje: unión de todas las semanas configuradas ──────────────
+  // (antes solo se leía la semana [0], por lo que si la primera semana no tenía
+  //  tareas configuradas el bloque salía vacío en el export)
+  function unionTareas(weekArr){
+    const map = new Map();
+    (weekArr||[]).forEach(w=>{
+      (w.tasks||[]).forEach(t=>{
+        if(!t || !t.nombre) return;
+        const k = t.nombre.trim().toLowerCase();
+        if(!map.has(k)) map.set(k, {nombre:t.nombre, minsSet:new Set(), pend:0});
+        const e = map.get(k);
+        e.minsSet.add(Number(t.mins)||0);
+        e.pend += Number(t.motosPendientes)||0;
+      });
+    });
+    return Array.from(map.values()).map(e=>{
+      const mins = Array.from(e.minsSet).sort((a,b)=>a-b);
+      const val = mins.length>1 ? `${mins[0]}–${mins[mins.length-1]}min/moto` : `${mins[0]||0}min/moto`;
+      return {nombre: e.nombre + (e.pend>0?` ⏳${e.pend}`:''), val};
+    });
+  }
+  const tareasYegoUnion = unionTareas(yegoWeekTasks);
+  const tareasMLUnion   = unionTareas(logtravWeekTasks);
+
+  // Tabla de tareas semana a semana (para Logtravi y para Yego)
+  function tablaTareasSemana(weekArr, color, titulo, personasDefault){
+    const weeks = (weekArr||[]).filter(w=>w && w.semana);
+    if(!weeks.length) return '';
+    // Columnas = unión de nombres de tarea en orden de aparición
+    const nombres = [];
+    weeks.forEach(w=>(w.tasks||[]).forEach(t=>{
+      if(t && t.nombre && !nombres.includes(t.nombre)) nombres.push(t.nombre);
+    }));
+    if(!nombres.length) return '';
+    let h = `<div style="margin-bottom:1rem;break-inside:avoid">
+      <div style="font-size:12px;font-weight:700;color:${color};margin-bottom:6px">${titulo}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr>
+          <th style="text-align:left;padding:5px 8px;background:${color};color:white;font-weight:600;white-space:nowrap">Semana</th>
+          <th style="text-align:center;padding:5px 8px;background:${color};color:white;font-weight:600;width:60px">👥</th>`;
+    nombres.forEach(n=>{
+      h += `<th style="text-align:center;padding:5px 8px;background:${color};color:white;font-weight:600;border-left:1px solid rgba(255,255,255,0.15)">${n}</th>`;
+    });
+    h += `<th style="text-align:center;padding:5px 8px;background:${color};color:white;font-weight:700;border-left:2px solid rgba(255,255,255,0.3);white-space:nowrap">Total min/moto</th>
+          <th style="text-align:center;padding:5px 8px;background:${color};color:white;font-weight:700;white-space:nowrap">Motos/día</th>
+        </tr></thead><tbody>`;
+    weeks.forEach((w,wi)=>{
+      const pers = w.personas || personasDefault || 1;
+      const totalMin = (w.tasks||[]).reduce((a,t)=>a+(Number(t.mins)||0),0);
+      const minMoto = pers>0 ? totalMin/pers : totalMin;
+      const motosDia = minMoto>0 ? Math.floor(jornadaH/(minMoto/60)) : 0;
+      h += `<tr style="background:${wi%2?'#FFFFFF':'#F8FAFC'}">
+        <td style="padding:5px 8px;font-weight:700;border-bottom:1px solid #E5E7EB;white-space:nowrap">${formatDate(w.semana)}</td>
+        <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #E5E7EB">${pers}p</td>`;
+      nombres.forEach(n=>{
+        const t = (w.tasks||[]).find(x=>x.nombre===n);
+        if(!t){
+          h += `<td style="padding:5px 8px;text-align:center;color:#D1D5DB;border-bottom:1px solid #E5E7EB;border-left:1px solid #F3F4F6">–</td>`;
+        } else {
+          const pend = Number(t.motosPendientes)||0;
+          h += `<td style="padding:5px 8px;text-align:center;border-bottom:1px solid #E5E7EB;border-left:1px solid #F3F4F6">
+            <span style="font-weight:600">${Number(t.mins)||0}min</span>
+            ${pend>0?`<div style="font-size:9px;color:#92400E;background:#FEF3C7;border-radius:6px;padding:0 4px;margin-top:2px">⏳ ${pend} pend.</div>`:''}
+          </td>`;
+        }
+      });
+      h += `<td style="padding:5px 8px;text-align:center;font-weight:700;border-bottom:1px solid #E5E7EB;border-left:2px solid #E5E7EB">${Math.round(minMoto)}min</td>
+        <td style="padding:5px 8px;text-align:center;font-weight:700;border-bottom:1px solid #E5E7EB">${motosDia}</td>
+      </tr>`;
+    });
+    h += `</tbody></table></div>`;
+    return h;
+  }
+
+  const tareasSemanaHtml =
+    tablaTareasSemana(logtravWeekTasks,'#6366F1','🔩 Montaje '+getBlockLabel('mont-logtravi')+' — tareas semana a semana', pML) +
+    tablaTareasSemana(yegoWeekTasks,'#0891B2','🔧 Montaje '+getBlockLabel('mont-yego')+' — tareas semana a semana', pMY);
+
   // Calcular métricas para fichas
   const totalMinDescExp = tareasDescarga.reduce((a,t)=>a+t.cant*t.mins,0);
   const hContDescExp = pDesc>0 ? (totalMinDescExp/pDesc)/60 : 0;
@@ -2306,16 +2584,24 @@ function exportPlanning(){
       [{label:'Min/cont. ('+pDesc+'p)',val:Math.round(totalMinDescExp/pDesc)+'min'},{label:'Horas/contenedor',val:hContDescExp.toFixed(1)+'h'},{label:'Cap. máx/día',val:vi('cap-descarga-dia')+' cont.'},{label:'Total contenedores',val:totalCont+' cont.'}]
     )}
     ${fichaHtml('#6366F1','🔩 Montaje '+getBlockLabel('mont-logtravi'),getBlockLabel('mont-logtravi'),pML,formatDateLong(fechaML),
-      (logtravWeekTasks[0]?logtravWeekTasks[0].tasks:[]).map(t=>({nombre:t.nombre,val:t.mins+'min/moto'})),
+      tareasMLUnion.length?tareasMLUnion:[{nombre:'Sin tareas configuradas',val:'–'}],
       [{label:'Min/moto ('+pML+'p)',val:Math.round(minMLmotoExp)+'min'},{label:'Horas/lote '+mpc()+' motos',val:hLoteMLExp.toFixed(1)+'h'},{label:'Jornada máx',val:jornadaH+'h'},{label:'Motos/día estimadas',val:minMLmotoExp>0?Math.floor(jornadaH/(minMLmotoExp/60))+' motos':'–'}]
     )}
     ${fichaHtml('#0891B2','🔧 Montaje '+getBlockLabel('mont-yego'),getBlockLabel('mont-yego'),pMY,primeraYego,
-      (yegoWeekTasks[0]?yegoWeekTasks[0].tasks:[]).map(t=>({nombre:t.nombre,val:t.mins+'min/moto'})),
+      tareasYegoUnion.length?tareasYegoUnion:[{nombre:'Sin tareas configuradas',val:'–'}],
       (()=>{
-        const totalMinMY0 = yegoWeekTasks[0]?yegoWeekTasks[0].tasks.reduce((a,t)=>a+t.mins,0):0;
-        const pMY0 = yegoWeekTasks[0]&&yegoWeekTasks[0].personas ? yegoWeekTasks[0].personas : pMY;
-        const minMYmoto0 = pMY0>0?totalMinMY0/pMY0:totalMinMY0;
-        return [{label:'Min/moto ('+pMY0+'p)',val:Math.round(minMYmoto0)+'min'},{label:'Motos/día estimadas',val:minMYmoto0>0?Math.floor(jornadaH/(minMYmoto0/60))+' motos':'–'},{label:'Semanas activas',val:semanasActivas.length+' sem'},{label:'Total motos',val:totalMotos+' motos'}];
+        // Media sobre todas las semanas configuradas, no solo la primera
+        const weeks = (yegoWeekTasks||[]).filter(w=>w&&(w.tasks||[]).length);
+        const minMotoSem = weeks.map(w=>{
+          const p = w.personas||pMY;
+          const tm = (w.tasks||[]).reduce((a,t)=>a+(Number(t.mins)||0),0);
+          return p>0?tm/p:tm;
+        });
+        const minMYmedio = minMotoSem.length ? minMotoSem.reduce((a,b)=>a+b,0)/minMotoSem.length : 0;
+        const rango = minMotoSem.length>1
+          ? Math.round(Math.min(...minMotoSem))+'–'+Math.round(Math.max(...minMotoSem))+'min'
+          : Math.round(minMYmedio)+'min';
+        return [{label:'Min/moto (rango)',val:rango},{label:'Motos/día estimadas',val:minMYmedio>0?Math.floor(jornadaH/(minMYmedio/60))+' motos':'–'},{label:'Semanas activas',val:semanasActivas.length+' sem'},{label:'Total motos',val:totalMotos+' motos'}];
       })()
     )}
     ${fichaHtml('#059669','🛵 Despliegue',getBlockLabel('despliegue'),pDesp,formatDateLong(fechaDesp),
@@ -2341,11 +2627,33 @@ function exportPlanning(){
         <div style="flex:1;display:flex;flex-wrap:wrap;gap:5px">`;
       day.activities.forEach(a=>{
         const bg = a.type==='descarga'?'#D97706':a.type==='mont-logtravi'?'#6366F1':a.type==='mont-yego'?'#0891B2':'#059669';
-        const lbl = a.type==='descarga'?'Descarga':a.type==='mont-logtravi'?'Mont. Logtravi':a.type==='mont-yego'?'Mont. Yego':'Despliegue';
+        const lbl = a.type==='descarga'?'Descarga':a.type==='mont-logtravi'?'Mont. '+getBlockLabel('mont-logtravi'):a.type==='mont-yego'?'Mont. '+getBlockLabel('mont-yego'):'Despliegue';
         const val = a.type==='descarga'?`${a.planCont} cont. · ${a.planMotos} motos`:`${a.planMotos} motos`;
-        dayDetailHtml += `<div style="background:${bg};color:white;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:600">
-          ${lbl}: ${val} · ${a.personas}p · ${a.horas.toFixed(1)}h
-        </div>`;
+        const reprogTot = a._reprogFrom ? Object.values(a._reprogFrom).reduce((x,y)=>x+(Number(y)||0),0) : 0;
+        dayDetailHtml += `<div style="display:flex;flex-direction:column;gap:2px">
+          <div style="background:${bg};color:white;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:600">
+            ${lbl}: ${val} · ${a.personas}p · ${(a.horas||0).toFixed(1)}h
+            ${reprogTot>0?`<span style="background:rgba(255,255,255,0.25);border-radius:6px;padding:0 5px;margin-left:4px">↺ +${reprogTot} reprog.</span>`:''}
+          </div>`;
+        // Tareas concretas del montaje (Yego y Logtravi) — antes no salían en el export
+        const tareasDia = (a.type==='mont-yego' || a.type==='mont-logtravi') ? (a.tareas||[]) : [];
+        if(tareasDia.length){
+          dayDetailHtml += `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-left:2px">`;
+          tareasDia.forEach(t=>{
+            if(!t || !t.nombre) return;
+            dayDetailHtml += `<span style="font-size:9px;background:${bg}1A;color:${bg};border:1px solid ${bg}55;border-radius:8px;padding:1px 6px;font-weight:600">${t.nombre} · ${Number(t.mins)||0}min</span>`;
+          });
+          dayDetailHtml += `</div>`;
+        }
+        if(a.pendientesInfo && a.pendientesInfo.length){
+          dayDetailHtml += `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-left:2px">
+            <span style="font-size:9px;color:#92400E;font-weight:700">⏳ +${(a.horasExtraPendientes||0).toFixed(1)}h pendientes:</span>`;
+          a.pendientesInfo.forEach(p=>{
+            dayDetailHtml += `<span style="font-size:9px;background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;border-radius:8px;padding:1px 6px">${p}</span>`;
+          });
+          dayDetailHtml += `</div>`;
+        }
+        dayDetailHtml += `</div>`;
       });
       dayDetailHtml += `</div></div>`;
     });
@@ -2403,6 +2711,13 @@ ${ganttHtml}
   <h2 style="font-size:13px;font-weight:700;color:#6B7A96;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Fichas de bloque — Equipo, tiempos y tareas</h2>
   ${fichasHtml}
 </div>
+
+<!-- SECCIÓN 2b: TAREAS DE MONTAJE SEMANA A SEMANA -->
+${tareasSemanaHtml ? `<div class="page-break" style="margin-top:2rem">
+  <h2 style="font-size:13px;font-weight:700;color:#6B7A96;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Tareas de montaje semana a semana</h2>
+  ${tareasSemanaHtml}
+  <p style="font-size:10px;color:#6B7A96;margin-top:6px">⏳ = motos de semanas anteriores pendientes de esa tarea (consumen horas del primer día de la semana).</p>
+</div>` : ''}
 
 <!-- SECCIÓN 3: DETALLE DÍA A DÍA -->
 <div class="page-break" style="margin-top:2rem">
@@ -2527,6 +2842,8 @@ function pushConfig(){
 function renderFromPlanDays(){
   if(!planDays.length) return;
   planDays=planDays.map(d=>({...d,activities:Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
+  migrarReprogramaciones();
+  recalcAcumulados();
   renderPlanning();
   renderDesviaciones();
   updateTabBadgePlanning();
@@ -2573,7 +2890,10 @@ async function loadAllAndSubscribe(){
     }
     const s2=await db.ref('planDays').once('value');
     const arr=toArray(s2.val());
-    if(arr.length) planDays=arr.map(d=>({...d,activities:Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
+    if(arr.length){
+      planDays=arr.map(d=>({...d,activities:Array.isArray(d.activities)?d.activities:toArray(d.activities)||[]}));
+      migrarReprogramaciones();
+    }
     const s3=await db.ref('registros').once('value');
     if(s3.val()) registros=s3.val();
     if(planDays.length){ renderFromPlanDays(); setSyncStatus('ok','✓ Datos cargados · '+currentUser); }
