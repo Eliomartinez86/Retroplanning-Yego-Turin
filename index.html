@@ -170,12 +170,6 @@ input[readonly]{background:var(--off);color:var(--text-muted);}
 .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted);margin:0 2px;flex-shrink:0;}
 
 /* STAFF */
-.staff-section{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px;}
-.staff-label{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;}
-.staff-grid{display:flex;gap:6px;flex-wrap:wrap;}
-.staff-input{border:1px dashed var(--border);border-radius:6px;padding:5px 10px;font-size:12px;min-width:130px;flex:1;background:var(--off);color:var(--text);font-family:'DM Sans',sans-serif;}
-.staff-input:focus{outline:none;border-color:var(--amber);border-style:solid;background:var(--white);}
-.staff-input::placeholder{color:var(--border);}
 
 /* BTN REGISTRO */
 .btn-registro{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);border-radius:6px;background:var(--white);color:var(--text-muted);font-family:'DM Sans',sans-serif;transition:all 0.15s;margin-top:8px;}
@@ -1762,20 +1756,6 @@ function renderPlanning(){
         });
       }
 
-      if(hasReg && (reg.staff_coord || (reg.staff_team && reg.staff_team.length))){
-        html += `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);display:flex;flex-wrap:wrap;gap:5px;align-items:center">
-          <span style="font-size:11px;color:var(--text-muted);font-weight:600">👥</span>`;
-        if(reg.staff_coord){
-          html += `<span style="font-size:11px;background:var(--amber-light);color:#92400E;padding:1px 8px;border-radius:10px;font-weight:700">⭐ ${reg.staff_coord}</span>`;
-        }
-        if(reg.staff_team && reg.staff_team.length){
-          reg.staff_team.forEach(name=>{
-            html += `<span style="font-size:11px;background:var(--off);color:var(--text-muted);padding:1px 8px;border-radius:10px;border:1px solid var(--border)">${name}</span>`;
-          });
-        }
-        html += `</div>`;
-      }
-
       html += `</div>
           <div class="day-actions">
             ${hasActividad ? `<button class="btn-registro ${hasReg?'registrado':''}" onclick="openModal('${day.id}')">
@@ -1980,11 +1960,6 @@ function openModal(dayId){
   v('modal-title').textContent = 'Registrar ejecución — ' + day.dayName + ' ' + day.dateStr;
   v('modal-sub').textContent = 'Introduce los valores reales del día.';
 
-  // ¿Tiene algún bloque Yego este día?
-  const hasYego = day.activities.some(a=>a.team==='yego');
-  // Número de personas Yego previstas
-  const nYego = day.activities.filter(a=>a.team==='yego').reduce((a,x)=>a+x.personas,0);
-
   let fields = '';
 
   // Campos de ejecución por bloque
@@ -1998,26 +1973,6 @@ function openModal(dayId){
       <div class="plan-ref">Plan: ${planVal} ${unit}</div>
     </div>`;
   });
-
-  // Sección equipo Yego (solo si hay bloques Yego)
-  if(hasYego){
-    const coord = reg.staff_coord || '';
-    const team = reg.staff_team || [];
-    const nSlots = Math.max(nYego - 1, 1); // slots para equipo (sin el coordinador)
-
-    fields += `<div class="modal-row" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
-      <label style="font-size:12px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:0.04em">👥 Equipo Yego presente</label>
-      <div style="margin-top:8px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em">⭐ Coordinador</div>
-        <input type="text" id="reg-staff-coord" value="${coord}" placeholder="Nombre del coordinador..." style="width:100%;margin-bottom:10px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em">Equipo (${nSlots} persona${nSlots!==1?'s':''})</div>
-        <div id="staff-team-slots" style="display:flex;flex-direction:column;gap:6px">`;
-
-    for(let i=0;i<nSlots;i++){
-      fields += `<input type="text" id="reg-staff-${i}" value="${team[i]||''}" placeholder="Persona ${i+1}..." style="width:100%">`;
-    }
-    fields += `</div></div></div>`;
-  }
 
   fields += `<div class="modal-row"><label>Nota</label><input type="text" id="reg-nota" value="${reg.nota||''}" placeholder="Observaciones..." style="width:100%"></div>`;
 
@@ -2076,13 +2031,10 @@ function saveRegistro(){
       }
     });
 
-    // Guardar staff Yego si hay campos presentes
-    const coordInp = v('reg-staff-coord');
-    if(coordInp) reg.staff_coord = coordInp.value.trim();
-    const teamSlots = document.querySelectorAll('[id^="reg-staff-"]:not(#reg-staff-coord)');
-    if(teamSlots.length){
-      reg.staff_team = Array.from(teamSlots).map(i=>i.value.trim()).filter(Boolean);
-    }
+    // Los nombres del equipo ya no se registran. Si el día tenía nombres
+    // guardados por una versión anterior, se eliminan al volver a guardarlo.
+    delete reg.staff_coord;
+    delete reg.staff_team;
 
     // Guardar reprogramación por actividad.
     // Primero se anula lo que este día había reprogramado antes, para que
